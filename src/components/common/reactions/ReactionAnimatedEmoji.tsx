@@ -104,9 +104,11 @@ const ReactionAnimatedEmoji = ({
     }
 
     const { stickers } = genericEffects;
+    if (!stickers.length) return undefined;
+
     const randomIndex = Math.floor(Math.random() * stickers.length);
 
-    return stickers[randomIndex].id;
+    return stickers[randomIndex]?.id;
   }, [assignedEffectId, genericEffects]);
 
   const isIntersecting = useIsIntersecting(ref, observeIntersection);
