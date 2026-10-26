@@ -16,6 +16,7 @@ interface ImportMetaEnv {
   readonly TG_PUBLIC_URL: string;
   readonly TG_TELEGRAM_API_HASH?: string;
   readonly TG_TELEGRAM_API_ID?: string;
+  readonly TG_LOCAL_MTPROTO_WS_URL?: string;
   readonly TG_TEST_SESSION?: string;
 }
 

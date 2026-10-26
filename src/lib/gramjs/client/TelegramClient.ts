@@ -224,12 +224,15 @@ class TelegramClient {
     apiHash?: string,
     opts: Partial<TelegramClientParams> = TelegramClient.DEFAULT_OPTIONS,
   ) {
-    if (!apiId || !apiHash || !Number.isFinite(apiId)) {
+    const hasLocalGramsrvEndpoint = import.meta.env.DEV && Boolean(import.meta.env.TG_LOCAL_MTPROTO_WS_URL);
+    const clientApiId = Number.isFinite(apiId) ? apiId! : 0;
+    const clientApiHash = apiHash || '';
+    if (!hasLocalGramsrvEndpoint && (!clientApiId || !clientApiHash)) {
       throw Error('Your API ID or Hash are invalid. Please read "Requirements" on README.md');
     }
     const args = { ...TelegramClient.DEFAULT_OPTIONS, ...opts } as TelegramClientParams;
-    this.apiId = apiId;
-    this.apiHash = apiHash;
+    this.apiId = clientApiId;
+    this.apiHash = clientApiHash;
     this.defaultDcId = args.dcId || DEFAULT_DC_ID;
     this._useIPV6 = args.useIPV6;
     this._shouldForceHttpTransport = args.shouldForceHttpTransport;

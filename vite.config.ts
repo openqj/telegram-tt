@@ -80,12 +80,18 @@ export default defineConfig(({ mode }): UserConfig => {
   const defaultAppTitle = `Telegram${appEnv !== 'production' ? ' Beta' : ''}`;
   const baseUrl = env.BASE_URL || PRODUCTION_URL;
   const appTitle = env.APP_TITLE || defaultAppTitle;
+  const isDevelopmentMode = mode === 'development';
   const isProductionApp = appEnv === 'production';
   const appleIcon = isProductionApp ? 'apple-touch-icon' : 'apple-touch-icon-dev';
   const mainIcon = isProductionApp ? 'icon-192x192' : 'icon-dev-192x192';
   const manifest = isProductionApp ? 'site.webmanifest' : 'site_dev.webmanifest';
-  const csp = buildCsp(appEnv);
-  const isDevelopmentMode = mode === 'development';
+  const csp = buildCsp(
+    appEnv,
+    isDevelopmentMode && env.TG_LOCAL_MTPROTO_WS_URL
+      ? getWebSocketOrigin(env.TG_LOCAL_MTPROTO_WS_URL)
+      : undefined,
+    isDevelopmentMode,
+  );
   const telegramApiId = env.TELEGRAM_API_ID || '';
   const telegramApiHash = env.TELEGRAM_API_HASH || '';
   const workerReportBundles: OutputBundle[] = [];
@@ -166,7 +172,8 @@ export default defineConfig(({ mode }): UserConfig => {
 
   const shouldCollectWorkerReportBundles = bundleStatsVisualizerValue === '1' || bundleStatsValue === '1';
 
-  if (appEnv !== 'test' && (!telegramApiId || !telegramApiHash)) {
+  const hasLocalGramsrvEndpoint = isDevelopmentMode && Boolean(env.TG_LOCAL_MTPROTO_WS_URL);
+  if (appEnv !== 'test' && !hasLocalGramsrvEndpoint && (!telegramApiId || !telegramApiHash)) {
     throw new Error('Missing required Telegram API credentials');
   }
 
@@ -212,6 +219,12 @@ export default defineConfig(({ mode }): UserConfig => {
         'Service-Worker-Allowed': '/',
       },
       https: getHttpsConfig(httpsCertPath, httpsKeyPath),
+      proxy: env.LOCAL_GRAMSRV_HTTP_TARGET ? {
+        '/owpengram/server-info': {
+          target: env.LOCAL_GRAMSRV_HTTP_TARGET,
+          changeOrigin: true,
+        },
+      } : undefined,
       warmup: {
         clientFiles: DEV_BUNDLE_WARMUP_CLIENT_FILES,
       },
@@ -288,13 +301,14 @@ function setViteEnv(env: Record<string, string>) {
   });
 }
 
-function buildCsp(appEnv: string) {
+function buildCsp(appEnv: string, localWebSocketOrigin?: string, isDevelopmentMode = false) {
   return `
   default-src 'self';
-  connect-src 'self' wss://*.web.telegram.org blob: http: https: wss: ${appEnv === 'development' ? 'ipc:' : ''};
+  connect-src 'self' wss://*.web.telegram.org blob: http: https: wss:
+    ${localWebSocketOrigin || ''} ${appEnv === 'development' ? 'ipc:' : ''};
   script-src 'self' 'wasm-unsafe-eval'
     https://t.me/_websync_ https://telegram.me/_websync_ https://telegram.dog/_websync_;
-  worker-src 'self'${appEnv === 'development' ? ' blob:' : ''};
+  worker-src 'self'${isDevelopmentMode ? ' blob:' : ''};
   style-src 'self' 'unsafe-inline';
   font-src 'self' data:;
   img-src 'self' data: blob: https://ss3.4sqi.net/img/categories_v2/;
@@ -306,6 +320,15 @@ function buildCsp(appEnv: string) {
   base-uri 'none';
   form-action 'none';`
     .replace(/\s+/g, ' ').trim();
+}
+
+function getWebSocketOrigin(url: string) {
+  const { protocol, host } = new URL(url);
+  if (protocol !== 'ws:' && protocol !== 'wss:') {
+    throw new Error('TG_LOCAL_MTPROTO_WS_URL must use ws:// or wss://');
+  }
+
+  return `${protocol}//${host}`;
 }
 
 function buildProjectPath(projectPath: string) {

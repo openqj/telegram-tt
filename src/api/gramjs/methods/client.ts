@@ -6,6 +6,7 @@ import {
 } from '../../../lib/gramjs';
 import type { TwoFaParams } from '../../../lib/gramjs/client/2fa';
 import TelegramClient from '../../../lib/gramjs/client/TelegramClient';
+import { registerServerPublicKey } from '../../../lib/gramjs/crypto/RSA';
 import { RPCError } from '../../../lib/gramjs/errors';
 import { Logger as GramJsLogger } from '../../../lib/gramjs/extensions/index';
 
@@ -18,7 +19,7 @@ import type {
 } from '../../types';
 
 import {
-  APP_CODE_NAME,
+  APP_CODE_NAME, DC_IDS,
   DEBUG, DEBUG_GRAMJS, IS_TEST, LANG_PACK, TELEGRAM_API_HASH, TELEGRAM_API_ID, UPLOAD_WORKERS,
 } from '../../../config';
 import { pause } from '../../../util/schedulers';
@@ -93,6 +94,25 @@ export function setLanguageCode({ langCode }: { langCode: string }) {
   return client.setLanguageCode(langCode);
 }
 
+async function loadLocalGramsrvServerInfo() {
+  if (!import.meta.env.DEV || !import.meta.env.TG_LOCAL_MTPROTO_WS_URL) return undefined;
+
+  const response = await fetch('/owpengram/server-info');
+  if (!response.ok) {
+    throw new Error(`Local Gramsrv server-info request failed: HTTP ${response.status}`);
+  }
+
+  const serverInfo = await response.json() as { dc_id?: unknown; rsa_public_key_pem?: unknown };
+  const dcId = DC_IDS.find((candidate) => candidate === serverInfo.dc_id);
+  if (!dcId) throw new Error('Local Gramsrv server-info returned an unsupported DC');
+  if (typeof serverInfo.rsa_public_key_pem !== 'string') {
+    throw new Error('Local Gramsrv server-info did not include an RSA public key');
+  }
+
+  await registerServerPublicKey(serverInfo.rsa_public_key_pem);
+  return { dcId };
+}
+
 export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoidFunction) {
   if (DEBUG) {
     // eslint-disable-next-line no-console
@@ -106,6 +126,7 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
     hasPasskeySupport, webAuthUserId,
   } = initialArgs;
 
+  const localGramsrv = await loadLocalGramsrvServerInfo();
   const session = new sessions.CallbackSession(sessionData, onSessionUpdate);
 
   (self as any).isWebmSupported = isWebmSupported;
@@ -125,7 +146,7 @@ export async function init(initialArgs: ApiInitialArgs, onConnected?: NoneToVoid
       shouldDebugExportedSenders,
       shouldForceHttpTransport,
       shouldAllowHttpTransport,
-      dcId,
+      dcId: localGramsrv?.dcId ?? dcId,
       langPack: LANG_PACK,
       langCode,
       systemLangCode: navigator.language,

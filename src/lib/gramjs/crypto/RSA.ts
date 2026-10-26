@@ -38,6 +38,76 @@ export const SERVER_KEYS = [
   return acc;
 }, new Map<bigint, { n: bigint; e: number }>());
 
+export async function registerServerPublicKey(pem: string) {
+  const match = /^\s*-----BEGIN RSA PUBLIC KEY-----\s*([\s\S]+?)\s*-----END RSA PUBLIC KEY-----\s*$/.exec(pem);
+  if (!match) throw new Error('Gramsrv server-info did not return an RSA public key');
+
+  const der = Uint8Array.from(atob(match[1].replace(/\s/g, '')), (char) => char.charCodeAt(0));
+  const sequence = readDerElement(der, 0, 0x30);
+  if (sequence.nextOffset !== der.length) throw new Error('Invalid Gramsrv RSA public key');
+
+  const modulus = readDerElement(sequence.value, 0, 0x02);
+  const exponent = readDerElement(sequence.value, modulus.nextOffset, 0x02);
+  if (exponent.nextOffset !== sequence.value.length) throw new Error('Invalid Gramsrv RSA public key');
+
+  const modulusBytes = readPositiveInteger(modulus.value);
+  const exponentBytes = readPositiveInteger(exponent.value);
+  const n = readBigIntFromBuffer(modulusBytes, false);
+  const e = readBigIntFromBuffer(exponentBytes, false);
+  if (n.toString(2).length !== 2048 || e <= 0n || e > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('Unsupported Gramsrv RSA public key');
+  }
+
+  const fingerprintHash = await sha1(concat(serializeTlBytes(modulusBytes), serializeTlBytes(exponentBytes)));
+  const fingerprint = readBigIntFromBuffer(fingerprintHash.slice(-8), true, true);
+  SERVER_KEYS.set(fingerprint, { n, e: Number(e) });
+  return fingerprint;
+}
+
+function readDerElement(data: Uint8Array, offset: number, expectedTag: number) {
+  if (offset < 0 || offset + 1 >= data.length || data[offset] !== expectedTag) {
+    throw new Error('Invalid Gramsrv RSA public key');
+  }
+
+  let cursor = offset + 1;
+  const firstLengthByte = data[cursor++];
+  let length = firstLengthByte;
+  if (firstLengthByte & 0x80) {
+    const lengthBytes = firstLengthByte & 0x7F;
+    if (lengthBytes === 0 || lengthBytes > 4 || cursor + lengthBytes > data.length) {
+      throw new Error('Invalid Gramsrv RSA public key');
+    }
+
+    length = 0;
+    for (let i = 0; i < lengthBytes; i++) {
+      length = (length * 0x100) + data[cursor++];
+    }
+    if (length < 0x80) throw new Error('Invalid Gramsrv RSA public key');
+  }
+
+  const end = cursor + length;
+  if (end > data.length) throw new Error('Invalid Gramsrv RSA public key');
+
+  return {
+    value: data.subarray(cursor, end),
+    nextOffset: end,
+  };
+}
+
+function readPositiveInteger(value: Uint8Array) {
+  if (value.length === 0 || (value[0] & 0x80) !== 0) throw new Error('Invalid Gramsrv RSA public key');
+  return value[0] === 0 ? value.subarray(1) : value;
+}
+
+function serializeTlBytes(value: Uint8Array) {
+  const header = value.length < 254
+    ? Uint8Array.of(value.length)
+    : Uint8Array.of(254, value.length & 0xFF, (value.length >> 8) & 0xFF, (value.length >> 16) & 0xFF);
+  const encoded = concat(header, value);
+  const paddingLength = (4 - (encoded.length % 4)) % 4;
+  return paddingLength ? concat(encoded, new Uint8Array(paddingLength)) : encoded;
+}
+
 /**
  * Encrypts the given data known the fingerprint to be used
  * in the way Telegram requires us to do so (sha1(data) + data + padding)

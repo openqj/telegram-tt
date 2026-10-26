@@ -79,6 +79,10 @@ export default class PromisedWebSockets {
   }
 
   getWebSocketLink(ip: string, port: number, isTestServer?: boolean, isPremium?: boolean) {
+    if (import.meta.env.DEV && import.meta.env.TG_LOCAL_MTPROTO_WS_URL) {
+      return import.meta.env.TG_LOCAL_MTPROTO_WS_URL;
+    }
+
     if (port === 443) {
       return `wss://${ip}:${port}/apiws${isTestServer ? '_test' : ''}${isPremium ? '_premium' : ''}`;
     } else {
