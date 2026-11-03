@@ -3,6 +3,8 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from '../
 import { getActions, getGlobal, withGlobal } from '../../global';
 
 import type {
+  ApiAgentWorkspaceFile,
+  ApiAgentWorkspaceSkill,
   ApiAttachment,
   ApiAttachMenuPeerType,
   ApiAvailableEffect,
@@ -41,7 +43,9 @@ import type {
   ThreadId,
 } from '../../types';
 import type { RegularLangKey } from '../../types/language';
-import type { RichEditorTooltipsConfig } from './tooltips/types';
+import type { AgentReasoningEffort } from '../../util/agentConversationSettings';
+import type { AgentTaskControl } from './helpers/agentActivity';
+import type { AgentComposerCommand, RichEditorTooltipsConfig } from './tooltips/types';
 import { ApiMediaFormat, ApiMessageEntityTypes, MAIN_THREAD_ID } from '../../api/types';
 
 import {
@@ -69,6 +73,7 @@ import {
   getReactionKey,
   getStoryKey,
   hasMessageMedia,
+  isAgentConversation,
   isChatAdmin,
   isChatChannel,
   isChatPublic,
@@ -92,6 +97,7 @@ import {
   selectChatHistoryTtl,
   selectChatMessage,
   selectChatMessageOrEphemeral,
+  selectChatMessages,
   selectChatType,
   selectCurrentMessageList,
   selectCustomEmoji,
@@ -131,6 +137,18 @@ import {
   selectNoWebPage,
 } from '../../global/selectors/threads';
 import {
+  fetchAgentWorkspaceFiles,
+  useAgentComposerConfig,
+} from '../../util/agentComposerConfig';
+import {
+  addAgentSettingsDirectives,
+  getAgentConversationSettings,
+  saveAgentConversationSettings,
+  saveAgentWorkspaceFileRef,
+  saveAgentWorkspaceSkillRef,
+} from '../../util/agentConversationSettings';
+import { getAgentWorkspaceSkills } from '../../util/agentWorkspaceSkills';
+import {
   IS_IOS, IS_VIDEO_RECORDING_SUPPORTED, IS_VOICE_RECORDING_SUPPORTED,
 } from '../../util/browser/windowEnvironment';
 import buildClassName from '../../util/buildClassName';
@@ -139,7 +157,7 @@ import { formatCountdown, formatMediaDuration } from '../../util/dates/duration'
 import { processDeepLink } from '../../util/deeplink';
 import { tryParseDeepLink } from '../../util/deepLinkParser';
 import calcTextLineHeightAndCount from '../../util/element/calcTextLineHeightAndCount';
-import { isUserId } from '../../util/entities/ids';
+import { getRawPeerId, isUserId } from '../../util/entities/ids';
 import { fetchBlob } from '../../util/files';
 import focusEditableElement from '../../util/focusEditableElement';
 import { formatStarsAsIcon } from '../../util/localization/format';
@@ -150,6 +168,7 @@ import stopEvent from '../../util/stopEvent';
 import { getUtf8Length } from '../../util/textFormat';
 import { EMPTY_RICH_MEDIA_CAPTION } from '../../util/tiptap/richMedia';
 import windowSize from '../../util/windowSize';
+import { callApi } from '../../api/gramjs';
 import applyIosAutoCapitalizationFix from '../middle/composer/helpers/applyIosAutoCapitalizationFix';
 import buildAttachment, {
   buildGifAttachment,
@@ -163,6 +182,7 @@ import {
   getRichInputAsFormatted,
   isValidInputRichMessage,
 } from '../ui/textInput/richText';
+import { getAgentTaskControl } from './helpers/agentActivity';
 import renderText from './helpers/renderText';
 import { hasActiveRichEditorTooltip } from './tooltips/helpers';
 
@@ -279,6 +299,7 @@ type StateProps = {
   todoListModal: TabState['todoListModal'];
   aiMessageEditorPendingResult: TabState['aiMessageEditorPendingResult'];
   botKeyboardMessageId?: number;
+  agentTaskControl?: AgentTaskControl;
   botKeyboardPlaceholder?: string;
   withScheduledButton?: boolean;
   autoDeletePeriod?: number;
@@ -355,6 +376,8 @@ type StateProps = {
 
 enum MainButtonState {
   Stop = 'stop',
+  Pause = 'pause',
+  Resume = 'resume',
   Send = 'send',
   Record = 'record',
   Edit = 'edit',
@@ -425,6 +448,7 @@ const Composer = ({
   todoListModal,
   aiMessageEditorPendingResult,
   botKeyboardMessageId,
+  agentTaskControl,
   botKeyboardPlaceholder,
   inputPlaceholder,
   withScheduledButton,
@@ -504,6 +528,7 @@ const Composer = ({
   const {
     sendMessage,
     stopTypingDraft,
+    clickBotInlineButton,
     clearDraft,
     showDialog,
     openTodoListModal,
@@ -1219,6 +1244,37 @@ const Composer = ({
   });
 
   const isStoryReactionPickerOpen = isInStoryViewer && Boolean(isReactionPickerOpen);
+  const isAgentChat = isAgentConversation(chat);
+  const agentComposerBotUserId = isAgentChat && isUserId(chatId) ? getRawPeerId(chatId).toString() : undefined;
+  const agentComposerConfig = useAgentComposerConfig(agentComposerBotUserId);
+  const handleAgentWorkspaceFilesLoad = useLastCallback((query: string) => (
+    agentComposerBotUserId ? fetchAgentWorkspaceFiles(agentComposerBotUserId, query) : Promise.resolve([])
+  ));
+  const handleAgentWorkspaceSkillsLoad = useLastCallback(async (query: string) => {
+    if (!agentComposerBotUserId) return [];
+    const files = await fetchAgentWorkspaceFiles(agentComposerBotUserId, query || 'SKILL.md');
+    return getAgentWorkspaceSkills(files);
+  });
+  const handleAgentWorkspaceFileSelect = useLastCallback(({ path }: ApiAgentWorkspaceFile) => {
+    saveAgentWorkspaceFileRef(chatId, path, agentComposerConfig?.defaultModel);
+  });
+  const handleAgentWorkspaceSkillSelect = useLastCallback((skill: ApiAgentWorkspaceSkill) => {
+    saveAgentWorkspaceSkillRef(chatId, skill, agentComposerConfig?.defaultModel);
+  });
+  const handleAgentCommandSelect = useLastCallback((command: AgentComposerCommand) => {
+    const settings = getAgentConversationSettings(chatId, agentComposerConfig?.defaultModel);
+    if (command.setting === 'model') {
+      saveAgentConversationSettings(chatId, { ...settings, model: command.value });
+    } else if (['low', 'medium', 'high'].includes(command.value)) {
+      saveAgentConversationSettings(chatId, {
+        ...settings,
+        reasoningEffort: command.value as AgentReasoningEffort,
+      });
+    } else if (command.setting === 'action' && command.value === 'status') {
+      getActions().changeProfileTab({ profileTab: 'agentActivity' });
+    }
+  });
+  const hasAgentTaskDraft = hasInputContent || hasAttachments || hasRichOnlyContent;
   const isComposerEngaged = isInputHasFocus || isSymbolMenuOpen || isSymbolMenuForced || isBotKeyboardOpen
     || isSendAsMenuOpen || isStoryReactionPickerOpen || Boolean(activeRecording) || attachments.length > 0;
   const isComposerActive = isComposerEngaged || isAttachMenuOpen;
@@ -1232,12 +1288,19 @@ const Composer = ({
       return MainButtonState.Edit;
     }
 
-    if (isInMessageList && stoppableTypingDraftId && !editingMessage && !isInScheduledList && !isForwarding
+    if (isInMessageList && isAgentChat && agentTaskControl && !hasAgentTaskDraft
+      && !editingMessage && !isInScheduledList && !isForwarding
+      && !activeVoiceRecording && !activeVideoRecording) {
+      return agentTaskControl.action === 'resume' ? MainButtonState.Resume : MainButtonState.Pause;
+    }
+
+    if (isInMessageList && stoppableTypingDraftId
+      && !editingMessage && !isInScheduledList && !isForwarding
       && !activeVoiceRecording && !activeVideoRecording) {
       return MainButtonState.Stop;
     }
 
-    if ((IS_VOICE_RECORDING_SUPPORTED || IS_VIDEO_RECORDING_SUPPORTED)
+    if (!isAgentChat && (IS_VOICE_RECORDING_SUPPORTED || IS_VIDEO_RECORDING_SUPPORTED)
       && !activeVoiceRecording && !activeVideoRecording && !isForwarding && !isRichInputExpansionActive
       && !(hasInputContent && !hasAttachments)) {
       return MainButtonState.Record;
@@ -1251,7 +1314,7 @@ const Composer = ({
   }, [
     activeVoiceRecording, activeVideoRecording, editingMessage, hasAttachments, isForwarding, isComposerEngaged,
     onForward, shouldForceShowEditing, isInScheduledList, hasInputContent, isRichInputExpansionActive,
-    isInMessageList, stoppableTypingDraftId,
+    isInMessageList, stoppableTypingDraftId, isAgentChat, agentTaskControl, hasAgentTaskDraft,
   ]);
   const canShowCustomSendMenu = !isInScheduledList;
 
@@ -1441,7 +1504,22 @@ const Composer = ({
     const currentRichMessage = richEditor.getValue();
     const formattedRichMessage = currentRichMessage.blocks.length
       ? getRichInputAsFormatted(currentRichMessage) : undefined;
-    const { text, entities } = formattedRichMessage || { text: '' };
+    let { text, entities } = formattedRichMessage || { text: '' };
+
+    if (isAgentChat && !editingMessage) {
+      const agentMessage = addAgentSettingsDirectives(
+        text,
+        entities || [],
+        getAgentConversationSettings(chatId, agentComposerConfig?.defaultModel),
+        {
+          canOverrideModel: agentComposerConfig?.executorBackend !== 'hermes',
+          canOverrideReasoning: agentComposerConfig?.executorBackend !== 'hermes',
+        },
+      );
+      text = agentMessage.text;
+      entities = agentMessage.entities;
+      if (text && !validateTextLength(text, true)) return;
+    }
 
     isInvertedMedia = text && sendCompressed && sendGrouped ? isInvertedMedia : undefined;
 
@@ -1537,7 +1615,7 @@ const Composer = ({
       const currentRichMessage = richEditorValue.blocks.length ? richEditorValue : undefined;
       const formattedRichMessage = currentRichMessage ? getRichInputAsFormatted(currentRichMessage) : undefined;
       const richMessageToSend = hasRichOnlyContent ? currentRichMessage : undefined;
-      const { text, entities } = richMessageToSend
+      let { text, entities } = richMessageToSend
         ? { text: '' }
         : formattedRichMessage || { text: '' };
 
@@ -1599,6 +1677,20 @@ const Composer = ({
 
       if (!text && !isForwarding) {
         return;
+      }
+
+      if (isAgentChat && !editingMessage && text) {
+        const agentMessage = addAgentSettingsDirectives(
+          text,
+          entities || [],
+          getAgentConversationSettings(chatId, agentComposerConfig?.defaultModel),
+          {
+            canOverrideModel: agentComposerConfig?.executorBackend !== 'hermes',
+            canOverrideReasoning: agentComposerConfig?.executorBackend !== 'hermes',
+          },
+        );
+        text = agentMessage.text;
+        entities = agentMessage.entities;
       }
 
       if (!validateTextLength(text)) return;
@@ -1708,6 +1800,29 @@ const Composer = ({
     handleActionWithPaymentConfirmation(
       handleSend, isSilent, scheduledAt, scheduleRepeatPeriod, shouldSkipWebPagePreview,
     );
+  });
+
+  const handleAgentTaskSteer = useLastCallback(async () => {
+    const cancelButton = agentTaskControl?.cancelButton;
+    if (!isAgentChat || !agentTaskControl || !cancelButton || cancelButton.action.type !== 'callback' || !chat) return;
+
+    try {
+      const result = await callApi('answerCallbackButton', {
+        chatId,
+        accessHash: chat.accessHash,
+        messageId: agentTaskControl.messageId,
+        data: cancelButton.action.data,
+      });
+      if (!result || result.alert) {
+        if (result?.message) showNotification({ message: result.message });
+        return;
+      }
+
+      if (result.message) showNotification({ message: result.message });
+      handleSendWithConfirmation();
+    } catch {
+      showNotification({ message: lang('ErrorUnspecified') });
+    }
   });
 
   useEffect(() => {
@@ -2055,27 +2170,35 @@ const Composer = ({
   });
 
   const getTooltipBoundary = useLastCallback(() => composerRef.current);
-  const getRichEditorTooltipContext = useLastCallback(() => ({
-    chatId,
-    threadId,
-    currentUserId,
-    currentUser,
-    groupChatMembers,
-    topInlineBotIds: canUseInlineBots ? topInlineBotIds : undefined,
-    topGuestBotIds,
-    recentEmojiIds: recentEmojis,
-    baseEmojiKeywords,
-    emojiKeywords,
-    inlineBots,
-    botCommands,
-    chatBotCommands,
-    quickReplies: canSendQuickReplies && isCurrentUserPremium ? quickReplies : undefined,
-    quickReplyMessages,
-    isSavedMessages: isChatWithSelf,
-    isInScheduledList,
-    isCurrentUserPremium,
-    canSendGifs,
-  }));
+  const getRichEditorTooltipContext = useLastCallback(() => {
+    const agentSettings = getAgentConversationSettings(chatId, agentComposerConfig?.defaultModel);
+    return {
+      chatId,
+      threadId,
+      currentUserId,
+      currentUser,
+      groupChatMembers,
+      topInlineBotIds: canUseInlineBots ? topInlineBotIds : undefined,
+      topGuestBotIds,
+      recentEmojiIds: recentEmojis,
+      baseEmojiKeywords,
+      emojiKeywords,
+      inlineBots,
+      botCommands,
+      chatBotCommands,
+      quickReplies: canSendQuickReplies && isCurrentUserPremium ? quickReplies : undefined,
+      quickReplyMessages,
+      isSavedMessages: isChatWithSelf,
+      isInScheduledList,
+      isCurrentUserPremium,
+      canSendGifs,
+      isAgentChat,
+      agentComposerConfig,
+      agentModel: agentSettings.model,
+      agentReasoningEffort: agentSettings.reasoningEffort,
+      agentUser: isAgentChat ? getGlobal().users.byId[chatId] : undefined,
+    };
+  });
   const getIsEmojiTooltipEnabled = useLastCallback(() => Boolean(
     isReady && isOnActiveTab && (isInStoryViewer || isForCurrentMessageList)
     && shouldSuggestStickers && !hasAttachments,
@@ -2099,6 +2222,8 @@ const Composer = ({
     && isReady
     && isForCurrentMessageList
     && (
+      isAgentChat
+      ||
       (botCommands && botCommands.length)
       || chatBotCommands?.length
       || (hasQuickReplies && canSendQuickReplies && isCurrentUserPremium)
@@ -2121,10 +2246,20 @@ const Composer = ({
       isEnabled: getIsStickerTooltipEnabled,
       onSelect: handleStickerSelect,
     },
-    mention: isInMessageList ? { isEnabled: getIsMentionTooltipEnabled } : undefined,
+    mention: isInMessageList ? {
+      isEnabled: getIsMentionTooltipEnabled,
+      fetchAgentWorkspaceFiles: isAgentChat ? handleAgentWorkspaceFilesLoad : undefined,
+      onAgentWorkspaceFileSelect: isAgentChat ? handleAgentWorkspaceFileSelect : undefined,
+    } : undefined,
+    skill: isInMessageList && isAgentChat ? {
+      isEnabled: getIsMentionTooltipEnabled,
+      fetchAgentWorkspaceSkills: handleAgentWorkspaceSkillsLoad,
+      onAgentWorkspaceSkillSelect: handleAgentWorkspaceSkillSelect,
+    } : undefined,
     command: isInMessageList ? {
       isEnabled: getIsCommandTooltipEnabled,
       onSelect: handleBotCommandSelect,
+      onAgentSelect: handleAgentCommandSelect,
     } : undefined,
     inlineBot: isInMessageList ? {
       isEnabled: getIsInlineBotTooltipEnabled,
@@ -2141,8 +2276,10 @@ const Composer = ({
     addRecentCustomEmoji, addRecentEmoji, getIsCommandTooltipEnabled, getIsCustomEmojiTooltipEnabled,
     getIsEmojiTooltipEnabled, getIsFormatterEnabled, getIsInlineBotTooltipEnabled,
     getIsMentionTooltipEnabled, getIsStickerTooltipEnabled, getRichEditorTooltipContext,
-    getTooltipBoundary, handleBotCommandSelect, handleInlineBotSelect, handleStickerSelect,
-    isInMessageList, setInlineBotHelp,
+    getTooltipBoundary, handleAgentCommandSelect, handleAgentWorkspaceFileSelect,
+    handleAgentWorkspaceSkillSelect, handleAgentWorkspaceFilesLoad, handleAgentWorkspaceSkillsLoad,
+    handleBotCommandSelect, handleInlineBotSelect, handleStickerSelect,
+    isAgentChat, isInMessageList, setInlineBotHelp,
   ]);
 
   const handleToDoListSend = useLastCallback((todo: ApiNewMediaTodo) => {
@@ -2461,11 +2598,39 @@ const Composer = ({
   const areRecordingsNotAllowed = mainButtonState === MainButtonState.Record
     && (!canAttachMedia || !canSendVoiceByPrivacy
       || (isRecordingVideoMode ? !canSendRoundVideos : !canSendVoices));
+  const areAgentVoiceRecordingsNotAllowed = !canAttachMedia || !canSendVoiceByPrivacy || !canSendVoices;
+
+  const handleAgentVoiceButtonClick = useLastCallback(() => {
+    if (areAgentVoiceRecordingsNotAllowed) {
+      if (!canSendVoiceByPrivacy) {
+        showNotification({
+          message: lang('NoVoiceMessagesAllowed', { user: chat?.title }),
+        });
+      } else if (!canSendVoices) {
+        showAllowedMessageTypesNotification({ chatId, messageListType });
+      }
+      return;
+    }
+    if (hasRichMediaBlocking) return;
+
+    setIsViewOnceEnabled(false);
+    void startRecordingVoice();
+  });
+
+  const isAgentSendButtonDisabled = isAgentChat && mainButtonState === MainButtonState.Send
+    && !hasInputContent && !hasAttachments && !hasRichOnlyContent && !activeRecording;
 
   const mainButtonHandler = useLastCallback(() => {
     switch (mainButtonState) {
       case MainButtonState.Stop:
         stopTypingDraft({ chatId, threadId, randomId: stoppableTypingDraftId! });
+        break;
+      case MainButtonState.Pause:
+      case MainButtonState.Resume:
+        if (agentTaskControl) {
+          const { messageId, button } = agentTaskControl;
+          clickBotInlineButton({ chatId, messageId, threadId, button });
+        }
         break;
       case MainButtonState.Forward:
         onForward?.();
@@ -2553,6 +2718,7 @@ const Composer = ({
   const fullClassName = buildClassName(
     'Composer',
     isInMessageList && 'is-chat-composer',
+    isInMessageList && isAgentChat && 'is-agent-chat-composer',
     isInStoryViewer && 'is-story-composer',
     isInStoryViewer && isComposerEngaged && 'is-story-composer-focused',
     !isSelectModeActive && 'shown',
@@ -2915,6 +3081,7 @@ const Composer = ({
           {!isNeedPremium && (
             <AttachMenu
               chatId={chatId}
+              isAgentChat={isAgentChat}
               threadId={threadId}
               editingMessage={editingMessage}
               canEditMedia={canMediaBeReplaced}
@@ -3165,7 +3332,9 @@ const Composer = ({
               getPlaybackEl={renderedVideoRecording?.getPlaybackEl}
             />
           )}
-          {((!isComposerBlocked || canSendGifs || canSendStickers) && !isNeedPremium && !isAccountFrozen) && (
+          {!isAgentChat && (
+            (!isComposerBlocked || canSendGifs || canSendStickers) && !isNeedPremium && !isAccountFrozen
+          ) && (
             <SymbolMenuButton
               chatId={chatId}
               threadId={threadId}
@@ -3236,6 +3405,20 @@ const Composer = ({
           )}
         </div>
       </div>
+      {isAgentChat && isInMessageList && IS_VOICE_RECORDING_SUPPORTED && !activeRecording
+        && !editingMessage && !isInScheduledList && !isForwarding && !isRichInputExpansionActive && (
+        <Button
+          round
+          color="translucent"
+          className="agent-voice-button composer-action-button"
+          disabled={areAgentVoiceRecordingsNotAllowed || hasRichMediaBlocking}
+          allowDisabledClick
+          ariaLabel={lang('AccDescrVoiceMessage')}
+          onClick={handleAgentVoiceButtonClick}
+        >
+          <Icon name="microphone-outline" />
+        </Button>
+      )}
       <Button
         ref={mainButtonRef}
         round
@@ -3249,15 +3432,18 @@ const Composer = ({
           Boolean(paidMessagesStars) && 'has-paid-stars',
           isPaidSend && 'paid',
         )}
-        disabled={areRecordingsNotAllowed || hasRichMediaBlocking}
+        disabled={areRecordingsNotAllowed || hasRichMediaBlocking || isAgentSendButtonDisabled}
         allowDisabledClick
         noFastClick
-        ariaLabel={mainButtonState === MainButtonState.Stop ? lang('BotDraftStop') : lang(sendButtonAriaLabel)}
+        ariaLabel={mainButtonState === MainButtonState.Stop ? lang('BotDraftStop')
+          : mainButtonState === MainButtonState.Pause || mainButtonState === MainButtonState.Resume
+            ? agentTaskControl?.button.text : lang(sendButtonAriaLabel)}
         onClick={mainButtonHandler}
         onContextMenu={mainButtonContextMenuHandler}
       >
         <Icon name="new-send" className="main-button-state-icon" />
-        {isInMessageList && <Icon name="stop-square" className="main-button-state-icon" />}
+        {isInMessageList && <Icon name={isAgentChat ? 'pause' : 'stop-square'} className="main-button-state-icon" />}
+        {isInMessageList && <Icon name="play" className="main-button-state-icon" />}
         <Icon
           name={isInStoryViewer ? 'microphone-outline' : 'microphone'}
           className="main-button-state-icon main-button-microphone"
@@ -3294,6 +3480,10 @@ const Composer = ({
           canSchedule={canSchedule && isInMessageList && !isViewOnceEnabled}
           canScheduleUntilOnline={canSchedule && canScheduleUntilOnline && !isViewOnceEnabled}
           onSendSilent={!isChatWithSelf ? handleSendSilent : undefined}
+          onAgentQueue={isAgentChat && agentTaskControl && hasAgentTaskDraft
+            ? () => handleSendWithConfirmation() : undefined}
+          onAgentTaskSteer={isAgentChat && agentTaskControl?.cancelButton && hasAgentTaskDraft
+            ? handleAgentTaskSteer : undefined}
           onSendSchedule={!isInScheduledList ? handleSendScheduled : undefined}
           onSendWhenOnline={handleSendWhenOnline}
           onRemoveEffect={handleRemoveEffect}
@@ -3375,6 +3565,9 @@ export default memo(withGlobal<OwnProps>(
     const baseEmojiKeywords = global.emojiKeywords[BASE_EMOJI_KEYWORD_LANG];
     const emojiKeywords = language !== BASE_EMOJI_KEYWORD_LANG ? global.emojiKeywords[language] : undefined;
     const botKeyboardMessageId = messageWithActualBotKeyboard ? messageWithActualBotKeyboard.id : undefined;
+    const agentTaskControl = isAgentConversation(chat)
+      ? getAgentTaskControl(selectChatMessages(global, chatId))
+      : undefined;
     const keyboardMessage = botKeyboardMessageId
       ? selectChatMessageOrEphemeral(global, chatId, botKeyboardMessageId)
       : undefined;
@@ -3471,6 +3664,7 @@ export default memo(withGlobal<OwnProps>(
       autoDeletePeriod: autoDeletePeriod || undefined,
       isInScheduledList,
       botKeyboardMessageId,
+      agentTaskControl,
       botKeyboardPlaceholder: keyboardMessage?.keyboardPlaceholder,
       isForwarding,
       isReplying,

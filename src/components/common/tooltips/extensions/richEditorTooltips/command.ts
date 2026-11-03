@@ -5,10 +5,11 @@ import { Suggestion, type SuggestionMatch } from '@tiptap/suggestion';
 import { getActions, getGlobal } from '../../../../../global';
 
 import type { ApiBotCommand } from '../../../../../api/types';
-import type { RichEditorTooltipItem, RichEditorTooltipsConfig } from '../../types';
+import type { AgentComposerCommand, RichEditorTooltipItem, RichEditorTooltipsConfig } from '../../types';
 
 import { getMainUsername } from '../../../../../global/helpers';
 import { replaceEditorRange } from '../../../../middle/composer/helpers/richEditorComposer';
+import { filterAgentCommands } from '../../agentCommands';
 import {
   buildBlockMatch,
   buildSuggestionRenderer,
@@ -33,6 +34,23 @@ export function buildCommandSuggestion(
     allow: () => config.command!.isEnabled(),
     items: ({ query }) => filterCommands(config, query),
     command: ({ editor: currentEditor, range, props }) => {
+      if (isAgentComposerCommand(props)) {
+        if (props.setting === 'submenu' || props.setting === 'command') {
+          replaceEditorRange(currentEditor, range, { type: 'text', text: `/${props.value} ` });
+          return;
+        }
+
+        if (props.setting === 'prompt') {
+          replaceEditorRange(currentEditor, range, { type: 'text', text: props.insertText! });
+          return;
+        }
+
+        currentEditor.chain().focus().deleteRange(range).run();
+        config.command?.onAgentSelect?.(props);
+        config.command?.onSelect();
+        return;
+      }
+
       const { sendBotCommand, sendQuickReply } = getActions();
       const context = config.getContext();
       if ('shortcut' in props) {
@@ -59,12 +77,16 @@ export function buildCommandSuggestion(
 
 function findCommandMatch({ $position }: { $position: ResolvedPos }): SuggestionMatch {
   const text = getSolePlainTextAtCaret($position);
-  const match = text?.match(/^\/([\w@]{0,32})$/i);
-  return match ? buildBlockMatch($position, text!, match[1] || '') : null;
+  const match = text?.match(/^\/([\w@:-]{0,64})(\s?)$/i);
+  return match ? buildBlockMatch($position, text!, `${match[1] || ''}${match[2] || ''}`) : null;
 }
 
 function filterCommands(config: RichEditorTooltipsConfig, query: string) {
   const context = config.getContext();
+  if (context.isAgentChat) {
+    return filterAgentCommands(context.agentComposerConfig, query);
+  }
+
   const commands = context.botCommands && context.botCommands.length
     ? context.botCommands
     : context.chatBotCommands;
@@ -78,4 +100,8 @@ function filterCommands(config: RichEditorTooltipsConfig, query: string) {
     && (!query || command.command.startsWith(query))
   )) || [];
   return [...quickReplies, ...filteredCommands];
+}
+
+function isAgentComposerCommand(item: RichEditorTooltipItem): item is AgentComposerCommand {
+  return 'type' in item && item.type === 'agentComposerCommand';
 }
