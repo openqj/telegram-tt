@@ -114,7 +114,10 @@ const ChatFolderModal = ({
 
     editChatFolders({ chatId, idsToRemove, idsToAdd });
     onClose();
-  }, [chatId, editChatFolders, initialSelectedFolderIds, onClose, saveAiConversationFolderMembership, scope, selectedFolderIds]);
+  }, [
+    chatId, editChatFolders, initialSelectedFolderIds, onClose, saveAiConversationFolderMembership, scope,
+    selectedFolderIds,
+  ]);
 
   if (scope === 'ai' ? !aiFolderOrderedIds : !foldersById || !folderOrderedIds) {
     return undefined;

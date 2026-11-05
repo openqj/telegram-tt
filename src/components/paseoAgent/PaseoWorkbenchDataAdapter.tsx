@@ -8,7 +8,8 @@ import { getActions, getGlobal } from '../../global';
 import type { GlobalState } from '../../global/types';
 
 import {
-  buildPaseoMessages, getPaseoAgentUserId, getPaseoChatId, type PaseoWorkbenchTimelineRow,
+  buildPaseoMessages, getPaseoAgentUserId, getPaseoChatId, getPaseoConversationPreviewRow,
+  getPaseoLastConversationMessageId, type PaseoWorkbenchTimelineRow,
 } from '../../global/paseoWorkbench';
 import { setPaseoWorkbenchClient } from '../../global/paseoWorkbenchClient';
 import { selectCurrentMessageList } from '../../global/selectors';
@@ -249,6 +250,7 @@ function PaseoWorkbenchDataAdapter({ isOpen }: OwnProps) {
   const identityAccountIdRef = useRef<string>();
   const connectingRef = useRef(false);
   const timelineGenerationRef = useRef(0);
+  const previewedAgentIdsRef = useRef(new Set<string>());
   const agentDirectorySubscriptionRef = useRef<ReturnType<DaemonClient['observeAgents']>>();
   const timelineSubscriptionRef = useRef<ReturnType<DaemonClient['subscribeAgentTimeline']>>();
   const isConnected = Boolean(
@@ -315,6 +317,7 @@ function PaseoWorkbenchDataAdapter({ isOpen }: OwnProps) {
     setHostId('');
     setSelectedAgentId('');
     setTimeline([]);
+    previewedAgentIdsRef.current.clear();
     if (clearSessions) syncPaseoWorkbenchSessions({ sessions: [] });
   });
 
@@ -343,6 +346,60 @@ function PaseoWorkbenchDataAdapter({ isOpen }: OwnProps) {
         epoch: page.epoch,
         seq: page.endCursor?.seq,
       });
+    }
+  });
+
+  const loadSessionPreview = useLastCallback(async (
+    client: DaemonClient,
+    telegramUserId: string,
+    currentHostId: string,
+    agentId: string,
+  ) => {
+    const chatId = getPaseoChatId(currentHostId, agentId);
+    const page = await client.fetchAgentTimeline(agentId, {
+      direction: 'tail',
+      limit: TIMELINE_LIMIT,
+    });
+    const global = getGlobal();
+    if (global.currentUserId !== telegramUserId || clientRef.current !== client
+      || selectCurrentMessageList(global)?.chatId === chatId) return;
+
+    const rows = page.entries.map((entry) => ({
+      key: `${page.epoch}:${entry.seqStart}-${entry.seqEnd}`,
+      sequence: entry.seqEnd,
+      date: getTimelineDate(entry.timestamp),
+      ...getTimelinePresentation(entry.item),
+    }));
+    const previewRow = getPaseoConversationPreviewRow(rows);
+    if (!previewRow) return;
+
+    const agentUserId = getPaseoAgentUserId(currentHostId, agentId);
+    syncPaseoWorkbenchMessages({
+      chatId,
+      messages: buildPaseoMessages(chatId, agentUserId, telegramUserId, [previewRow]),
+      lastMessageId: 1,
+    });
+  });
+
+  const loadSessionPreviews = useLastCallback(async (
+    client: DaemonClient,
+    telegramUserId: string,
+    currentHostId: string,
+    agentIds: string[],
+  ) => {
+    const unloadedAgentIds = agentIds.filter((agentId) => !previewedAgentIdsRef.current.has(agentId));
+    unloadedAgentIds.forEach((agentId) => previewedAgentIdsRef.current.add(agentId));
+
+    for (let index = 0; index < unloadedAgentIds.length; index += 4) {
+      if (clientRef.current !== client || getGlobal().currentUserId !== telegramUserId) return;
+
+      await Promise.all(unloadedAgentIds.slice(index, index + 4).map(async (agentId) => {
+        try {
+          await loadSessionPreview(client, telegramUserId, currentHostId, agentId);
+        } catch {
+          previewedAgentIdsRef.current.delete(agentId);
+        }
+      }));
     }
   });
 
@@ -493,6 +550,7 @@ function PaseoWorkbenchDataAdapter({ isOpen }: OwnProps) {
       agentDirectorySubscription.subscribe({
         snapshot: ({ entries }) => {
           if (getGlobal().currentUserId !== telegramUserId || clientRef.current !== nextClient) return;
+          const agentIds = entries.map(({ agent }) => agent.id);
           syncPaseoWorkbenchSessions({
             sessions: entries.map(({ agent, project }) => ({
               hostId: currentHostId,
@@ -505,12 +563,17 @@ function PaseoWorkbenchDataAdapter({ isOpen }: OwnProps) {
               activityText: getPaseoAgentStatusText(agent.status),
             })),
           });
+          void loadSessionPreviews(nextClient!, telegramUserId, currentHostId, agentIds);
         },
         update: (message) => {
           if (message.type !== 'agent_update' || getGlobal().currentUserId !== telegramUserId
             || clientRef.current !== nextClient) return;
 
           const { payload } = message;
+          if (payload.kind === 'upsert') {
+            previewedAgentIdsRef.current.delete(payload.agent.id);
+            void loadSessionPreviews(nextClient!, telegramUserId, currentHostId, [payload.agent.id]);
+          }
           syncPaseoWorkbenchActivity({
             chatId: getPaseoChatId(currentHostId, payload.kind === 'upsert' ? payload.agent.id : payload.agentId),
             activityText: payload.kind === 'upsert' ? getPaseoAgentStatusText(payload.agent.status) : undefined,
@@ -570,6 +633,7 @@ function PaseoWorkbenchDataAdapter({ isOpen }: OwnProps) {
     syncPaseoWorkbenchMessages({
       chatId,
       messages: buildPaseoMessages(chatId, agentUserId, currentUserId, timeline),
+      lastMessageId: getPaseoLastConversationMessageId(timeline),
     });
   }, [currentUserId, hostId, selectedAgentId, syncPaseoWorkbenchMessages, timeline]);
 

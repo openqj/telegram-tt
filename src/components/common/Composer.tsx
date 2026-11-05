@@ -1694,7 +1694,8 @@ const Composer = ({
       }
 
       if (
-        isAgentChat && !editingMessage && !isForwarding && !scheduledAt && !scheduleRepeatPeriod
+        isAgentChat && (!chat?.isHermesAgentBot || agentComposerConfig?.slashCommands?.includes('newbot'))
+        && !editingMessage && !isForwarding && !scheduledAt && !scheduleRepeatPeriod
         && text.trim().toLowerCase() === '/newbot'
       ) {
         getActions().createNewHermesAgentBotChat();

@@ -279,11 +279,9 @@ export type GlobalState = {
 
   paseoWorkbench?: {
     isActive: boolean;
-    activePaseoFolder: number;
     ownerUserId?: string;
     chatIds: string[];
     projectFoldersById: Record<number, ApiChatFolder>;
-    projectFolderOrder: number[];
     sessionsByChatId: Record<string, PaseoWorkbenchSession>;
   };
 

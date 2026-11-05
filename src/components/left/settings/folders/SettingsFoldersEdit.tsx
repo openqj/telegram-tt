@@ -384,12 +384,14 @@ const SettingsFoldersEdit = ({
     <div className="settings-fab-wrapper">
       <Surface scrollable className="settings-content no-border">
         <IslandOutside className="settings-content-header settings-folders-header">
-          <AnimatedIconWithPreview
-            size={STICKER_SIZE_FOLDER_SETTINGS}
-            tgsUrl={LOCAL_TGS_URLS.FoldersNew}
-            play={String(state.folderId)}
-            className="settings-content-icon"
-          />
+          {!isAiScope && (
+            <AnimatedIconWithPreview
+              size={STICKER_SIZE_FOLDER_SETTINGS}
+              tgsUrl={LOCAL_TGS_URLS.FoldersNew}
+              play={String(state.folderId)}
+              className="settings-content-icon"
+            />
+          )}
 
           {isCreating && !isAiScope && (
             <p className="settings-item-description mb-3" dir={lang.isRtl ? 'rtl' : undefined}>
@@ -470,109 +472,115 @@ const SettingsFoldersEdit = ({
           </>
         )}
 
-        {!isAiScope && <>
-        <IslandTitle className="color-picker-header" dir={lang.isRtl ? 'rtl' : undefined}>
-          <span className="color-picker-title-text">{lang('FilterColorTitle')}</span>
-          <div className={buildClassName(
-            'color-picker-title',
-            'color-picker-selected-color',
-            isCurrentUserPremium && state.folder.color !== undefined && state.folder.color !== -1
-              ? getPeerColorClass(state.folder.color)
-              : 'color-picker-item-disabled',
-          )}
-          >
-            {renderTextWithEntities({
-              text: state.folder.title.text,
-              entities: state.folder.title.entities,
-              noCustomEmojiPlayback: state.folder.noTitleAnimations,
-            })}
-          </div>
-        </IslandTitle>
-        <Island>
-          <div className="color-picker custom-scroll-x">
-            {FOLDER_COLORS.map((color) => (
-              <button
-                key={color}
-                type="button"
-                onClick={() => {
-                  if (!isCurrentUserPremium) {
-                    openPremiumModal();
-                    return;
-                  }
-
-                  dispatch({ type: 'setColor', payload: color });
-                }}
-                className={buildClassName(
-                  'color-picker-item',
-                  getPeerColorClass(color),
-                  !isCurrentUserPremium && 'color-picker-item-hover-disabled',
-                  color === state.folder.color && isCurrentUserPremium && 'color-picker-item-active',
-                )}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => {
-                if (!isCurrentUserPremium) {
-                  openPremiumModal();
-                  return;
-                }
-
-                dispatch({ type: 'setColor', payload: undefined });
-              }}
-              className={buildClassName(
-                'color-picker-item',
-                'color-picker-item-none',
-                (state.folder.color === undefined || state.folder.color === -1 || !isCurrentUserPremium)
-                && 'color-picker-item-active',
+        {!isAiScope && (
+          <>
+            <IslandTitle className="color-picker-header" dir={lang.isRtl ? 'rtl' : undefined}>
+              <span className="color-picker-title-text">{lang('FilterColorTitle')}</span>
+              <div className={buildClassName(
+                'color-picker-title',
+                'color-picker-selected-color',
+                isCurrentUserPremium && state.folder.color !== undefined && state.folder.color !== -1
+                  ? getPeerColorClass(state.folder.color)
+                  : 'color-picker-item-disabled',
               )}
-            >
-              {isCurrentUserPremium ? (
-                <Icon name="close" className="color-picker-item-none-icon" />
-              ) : (
-                <Icon name="lock-filled" className="color-picker-item-none-icon" />
-              )}
-            </button>
-          </div>
-        </Island>
-        </>}
-        {!isAiScope && <IslandDescription dir={lang.isRtl ? 'rtl' : undefined}>
-          {lang('FilterColorHint')}
-        </IslandDescription>}
+              >
+                {renderTextWithEntities({
+                  text: state.folder.title.text,
+                  entities: state.folder.title.entities,
+                  noCustomEmojiPlayback: state.folder.noTitleAnimations,
+                })}
+              </div>
+            </IslandTitle>
+            <Island>
+              <div className="color-picker custom-scroll-x">
+                {FOLDER_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => {
+                      if (!isCurrentUserPremium) {
+                        openPremiumModal();
+                        return;
+                      }
 
-        {!isAiScope && <>
-        <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>
-          {lang('FolderLinkScreenTitle')}
-        </IslandTitle>
-        <Island>
-          <ListItem
-            className="settings-folders-list-item color-primary"
-            icon="add"
-            narrow
-            onClick={handleCreateInviteClick}
-          >
-            {lang('ChatListFilterCreateLinkNew')}
-          </ListItem>
+                      dispatch({ type: 'setColor', payload: color });
+                    }}
+                    className={buildClassName(
+                      'color-picker-item',
+                      getPeerColorClass(color),
+                      !isCurrentUserPremium && 'color-picker-item-hover-disabled',
+                      color === state.folder.color && isCurrentUserPremium && 'color-picker-item-active',
+                    )}
+                  />
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!isCurrentUserPremium) {
+                      openPremiumModal();
+                      return;
+                    }
 
-          {invites?.map((invite) => (
-            <ListItem
-              className="settings-folders-list-item"
-              icon="link"
-              narrow
-              multiline
-              onClick={handleEditInviteClick}
-              clickArg={invite.url}
-            >
-              <span className="title" dir="auto">{invite.title || invite.url}</span>
-              <span className="subtitle">
-                {lang('ChatListFilterLinkLabelChatCount', {
-                  count: lang.number(invite.peerIds.length),
-                }, { pluralValue: invite.peerIds.length })}
-              </span>
-            </ListItem>
-          ))}
-        </Island>
-        </>}
+                    dispatch({ type: 'setColor', payload: undefined });
+                  }}
+                  className={buildClassName(
+                    'color-picker-item',
+                    'color-picker-item-none',
+                    (state.folder.color === undefined || state.folder.color === -1 || !isCurrentUserPremium)
+                    && 'color-picker-item-active',
+                  )}
+                >
+                  {isCurrentUserPremium ? (
+                    <Icon name="close" className="color-picker-item-none-icon" />
+                  ) : (
+                    <Icon name="lock-filled" className="color-picker-item-none-icon" />
+                  )}
+                </button>
+              </div>
+            </Island>
+          </>
+        )}
+        {!isAiScope && (
+          <IslandDescription dir={lang.isRtl ? 'rtl' : undefined}>
+            {lang('FilterColorHint')}
+          </IslandDescription>
+        )}
+
+        {!isAiScope && (
+          <>
+            <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>
+              {lang('FolderLinkScreenTitle')}
+            </IslandTitle>
+            <Island>
+              <ListItem
+                className="settings-folders-list-item color-primary"
+                icon="add"
+                narrow
+                onClick={handleCreateInviteClick}
+              >
+                {lang('ChatListFilterCreateLinkNew')}
+              </ListItem>
+
+              {invites?.map((invite) => (
+                <ListItem
+                  className="settings-folders-list-item"
+                  icon="link"
+                  narrow
+                  multiline
+                  onClick={handleEditInviteClick}
+                  clickArg={invite.url}
+                >
+                  <span className="title" dir="auto">{invite.title || invite.url}</span>
+                  <span className="subtitle">
+                    {lang('ChatListFilterLinkLabelChatCount', {
+                      count: lang.number(invite.peerIds.length),
+                    }, { pluralValue: invite.peerIds.length })}
+                  </span>
+                </ListItem>
+              ))}
+            </Island>
+          </>
+        )}
       </Surface>
 
       <FloatingActionButton
@@ -601,8 +609,8 @@ export default memo(withGlobal<OwnProps>(
       invites: state.folderId ? (invites[state.folderId] || MEMO_EMPTY_ARRAY) : undefined,
       isRemoved: state.folderId !== undefined && (isAiScope
         ? global.aiConversationFolders.ownerUserId === global.currentUserId
-          && Boolean(global.aiConversationFolders.isLoaded)
-          && !global.aiConversationFolders.byId[state.folderId]
+        && Boolean(global.aiConversationFolders.isLoaded)
+        && !global.aiConversationFolders.byId[state.folderId]
         : !byId[state.folderId]),
       maxInviteLinks: selectCurrentLimit(global, 'chatlistInvites'),
       maxChatLists: selectCurrentLimit(global, 'chatlistJoined'),

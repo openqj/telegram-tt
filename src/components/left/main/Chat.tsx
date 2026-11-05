@@ -658,7 +658,7 @@ export default memo(withGlobal<OwnProps>(
       canScrollDown: isSelected && currentMessageListType === 'thread',
       canChangeFolder: isAiList
         ? global.aiConversationFolders.ownerUserId === global.currentUserId
-          && Boolean(global.aiConversationFolders.orderedIds?.length)
+        && Boolean(global.aiConversationFolders.orderedIds?.length)
         : (global.chatFolders.orderedIds?.length || 0) > 1,
       user,
       userStatus,

@@ -152,8 +152,6 @@ export interface ActionPayloads {
   };
 
   setPaseoWorkbenchActive: { isActive: boolean };
-  setActivePaseoFolder: { activePaseoFolder: number };
-  setPaseoProjectFolderOrder: { folderIds: number[] };
   syncPaseoWorkbenchSessions: {
     sessions: Array<{
       hostId: string;
@@ -173,6 +171,7 @@ export interface ActionPayloads {
   syncPaseoWorkbenchMessages: {
     chatId: string;
     messages: ApiMessage[];
+    lastMessageId?: number;
   };
 
   // auth

@@ -31,6 +31,19 @@ export type PaseoWorkbenchTimelineRow = {
   date: number;
 };
 
+export function getPaseoConversationPreviewRow(rows: PaseoWorkbenchTimelineRow[]) {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    if (rows[index].kind !== 'activity' && rows[index].text.trim()) return rows[index];
+  }
+
+  return undefined;
+}
+
+export function getPaseoLastConversationMessageId(rows: PaseoWorkbenchTimelineRow[]) {
+  const previewRow = getPaseoConversationPreviewRow(rows);
+  return previewRow ? rows.indexOf(previewRow) + 1 : undefined;
+}
+
 export function getPaseoChatId(hostId: string, agentId: string) {
   return String(-(PASEO_CHAT_ID_OFFSET + hashId(`${hostId}:${agentId}`)));
 }
@@ -76,27 +89,10 @@ export function getPaseoProjectFolderId(projectKey: string) {
   return -1_000_000_000 - (hashId(projectKey) % 1_000_000_000);
 }
 
-export function getOrderedPaseoProjectFolderIds(
-  foldersById: Record<number, ApiChatFolder>,
-  orderedIds: number[] = [],
-) {
-  const result: number[] = [];
-  const seen = new Set<number>();
-
-  orderedIds.forEach((id) => {
-    if (foldersById[id] && !seen.has(id)) {
-      result.push(id);
-      seen.add(id);
-    }
-  });
-
-  Object.values(foldersById)
+export function getPaseoProjectFolderIds(foldersById: Record<number, ApiChatFolder>) {
+  return Object.values(foldersById)
     .sort((a, b) => a.title.text.localeCompare(b.title.text))
-    .forEach(({ id }) => {
-      if (!seen.has(id)) result.push(id);
-    });
-
-  return result;
+    .map(({ id }) => id);
 }
 
 export function buildPaseoProjectFolder(id: number, projectName: string): ApiChatFolder {

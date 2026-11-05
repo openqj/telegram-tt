@@ -296,6 +296,9 @@ const MiddleHeader = ({
 
     const displayChatId = chat?.isMonoforum ? chat.linkedMonoforumId! : realChatId;
     const isAgentChat = isAgentConversation(chat);
+    const chatStatus = chat?.isPaseoAgentSession
+      ? chat.paseoSubtitle
+      : connectionStatusText || savedMessagesStatus;
     return (
       <>
         {(isLeftColumnHideable || currentTransitionKey > 0) && renderBackButton(shouldShowCloseButton, !isSavedDialog)}
@@ -313,8 +316,8 @@ const MiddleHeader = ({
               userId={displayChatId}
               threadId={!isSavedDialog ? threadId : undefined}
               typingStatusByPeerId={typingStatusByPeerId}
-              status={connectionStatusText || savedMessagesStatus}
-              withDots={Boolean(connectionStatusText)}
+              status={chatStatus}
+              withDots={Boolean(!chat?.isPaseoAgentSession && connectionStatusText)}
               withFullInfo={threadId === MAIN_THREAD_ID}
               withMediaViewer={threadId === MAIN_THREAD_ID}
               withStory={!isChatWithSelf}
@@ -332,8 +335,8 @@ const MiddleHeader = ({
               threadId={!isSavedDialog ? threadId : undefined}
               typingStatusByPeerId={typingStatusByPeerId}
               withMonoforumStatus={chat?.isMonoforum}
-              status={connectionStatusText || savedMessagesStatus}
-              withDots={Boolean(connectionStatusText)}
+              status={chatStatus}
+              withDots={Boolean(!chat?.isPaseoAgentSession && connectionStatusText)}
               withMediaViewer={!isAgentChat && threadId === MAIN_THREAD_ID}
               withFullInfo={!isAgentChat && threadId === MAIN_THREAD_ID}
               withUpdatingStatus

@@ -8,7 +8,6 @@ import type { AnimationLevel } from '../../../types';
 import type { TabWithProperties } from '../../ui/TabList';
 
 import { ALL_FOLDER_ID } from '../../../config';
-import { getOrderedPaseoProjectFolderIds } from '../../../global/paseoWorkbench';
 import { selectTabState } from '../../../global/selectors';
 import { selectCurrentLimit } from '../../../global/selectors/limits';
 import { selectSharedSettings } from '../../../global/selectors/sharedState';
@@ -18,7 +17,6 @@ import captureEscKeyListener from '../../../util/captureEscKeyListener';
 import { captureEvents, SwipeDirection } from '../../../util/captureEvents';
 import { resolveTransitionName } from '../../../util/resolveTransitionName';
 
-import useSelector from '../../../hooks/data/useSelector';
 import useDerivedState from '../../../hooks/useDerivedState';
 import useFolderTabs from '../../../hooks/useFolderTabs';
 import useHistoryBack from '../../../hooks/useHistoryBack';
@@ -60,9 +58,9 @@ type StateProps = {
 
 const SAVED_MESSAGES_HOTKEY = '0';
 const FIRST_FOLDER_INDEX = 0;
+// Keep built-in tab keys separate from positive database folder IDs.
 const AI_ALL_TAB_ID = -10001;
 const AI_BOTS_TAB_ID = -10002;
-const EMPTY_PASEO_PROJECT_FOLDERS: Record<number, ApiChatFolder> = {};
 const EMPTY_AI_FOLDERS: Record<number, ApiAiConversationFolder> = {};
 
 const ChatFolders = ({
@@ -91,20 +89,13 @@ const ChatFolders = ({
     loadChatFolders,
     loadAiConversationFolders,
     setActiveChatFolder,
-    setActivePaseoFolder,
     openChat,
   } = getActions();
   const hasCurrentAiFolderState = aiConversationFolders.ownerUserId === currentUserId;
   const aiFoldersById = hasCurrentAiFolderState ? aiConversationFolders.byId : EMPTY_AI_FOLDERS;
   const aiFolderIds = hasCurrentAiFolderState ? aiConversationFolders.orderedIds : undefined;
 
-  const paseoWorkbench = useSelector((global) => global.paseoWorkbench);
-  const paseoProjectFolders = paseoWorkbench?.projectFoldersById || EMPTY_PASEO_PROJECT_FOLDERS;
-  const paseoOrderedFolderIds = useMemo(() => [
-    ALL_FOLDER_ID,
-    ...getOrderedPaseoProjectFolderIds(paseoProjectFolders, paseoWorkbench?.projectFolderOrder),
-  ], [paseoProjectFolders, paseoWorkbench?.projectFolderOrder]);
-  const currentFolderIndex = isPaseoWorkbench ? paseoWorkbench?.activePaseoFolder || 0 : activeChatFolder;
+  const currentFolderIndex = isPaseoWorkbench ? FIRST_FOLDER_INDEX : activeChatFolder;
   const [activeAiFolderIndex, setActiveAiFolderIndex] = useState(0);
   const activeFolderIndex = isAiList ? activeAiFolderIndex : currentFolderIndex;
 
@@ -123,7 +114,8 @@ const ChatFolders = ({
       loadAiConversationFolders();
     }
   }, [
-    aiConversationFolders.isLoaded, aiConversationFolders.ownerUserId, currentUserId, isAiList, loadAiConversationFolders,
+    aiConversationFolders.isLoaded, aiConversationFolders.ownerUserId, currentUserId, isAiList,
+    loadAiConversationFolders,
   ]);
 
   useEffect(() => {
@@ -154,14 +146,7 @@ const ChatFolders = ({
     });
   });
 
-  const folderTabsParams = isPaseoWorkbench ? {
-    sidebarMode: false,
-    noEmoticons: true,
-    orderedFolderIds: paseoOrderedFolderIds,
-    chatFoldersById: paseoProjectFolders,
-    maxFolders: paseoOrderedFolderIds.length,
-    isReadOnly: true as const,
-  } : {
+  const folderTabsParams = {
     sidebarMode: false,
     noEmoticons: true,
     orderedFolderIds,
@@ -173,11 +158,11 @@ const ChatFolders = ({
   };
   const { displayedFolders, folderTabs } = useFolderTabs(folderTabsParams);
   const aiFolderTabs = useMemo<TabWithProperties[]>(() => [
-    { id: AI_ALL_TAB_ID, title: lang('FilterAllChatsShort'), emoticon: '💬' },
-    { id: AI_BOTS_TAB_ID, title: lang('FilterBots'), emoticon: '🤖' },
+    { id: AI_ALL_TAB_ID, title: lang('FilterAllChatsShort') },
+    { id: AI_BOTS_TAB_ID, title: lang('FilterBots') },
     ...(aiFolderIds || []).flatMap((id) => {
       const folder = aiFoldersById[id];
-      return folder ? [{ id, title: folder.title, emoticon: '📁' }] : [];
+      return folder ? [{ id, title: folder.title }] : [];
     }),
   ], [aiFolderIds, aiFoldersById, lang]);
   const activeTabs = isAiList ? aiFolderTabs : folderTabs;
@@ -187,9 +172,7 @@ const ChatFolders = ({
   const isInFirstFolder = FIRST_FOLDER_INDEX === currentFolderIndex;
 
   const setActiveFolder = useLastCallback((index: number, forceOnHeavyAnimation = false) => {
-    if (isPaseoWorkbench) {
-      setActivePaseoFolder({ activePaseoFolder: index });
-    } else if (forceOnHeavyAnimation) {
+    if (forceOnHeavyAnimation) {
       setActiveChatFolder({ activeChatFolder: index }, { forceOnHeavyAnimation: true });
     } else {
       setActiveChatFolder({ activeChatFolder: index });
@@ -232,7 +215,7 @@ const ChatFolders = ({
   }, [activeFolderIndex, activeTabs, isAiList, setActiveFolder]);
 
   useEffect(() => {
-    if (isAiList || !IS_TOUCH_ENV || !folderTabs?.length || isForumPanelOpen) {
+    if (isAiList || isPaseoWorkbench || !IS_TOUCH_ENV || !folderTabs?.length || isForumPanelOpen) {
       return undefined;
     }
 
@@ -295,20 +278,17 @@ const ChatFolders = ({
     ref: placeholderRef,
     shouldRender: shouldRenderPlaceholder,
   } = useShowTransition({
-    isOpen: !isAiList && !(isPaseoWorkbench ? paseoOrderedFolderIds : orderedFolderIds)
-      && !isFoldersSidebarShown,
+    isOpen: !isAiList && !isPaseoWorkbench && !orderedFolderIds && !isFoldersSidebarShown,
     noMountTransition: true,
     withShouldRender: true,
   });
 
   function renderCurrentTab(isActive: boolean) {
     if (isAiList || isPaseoWorkbench) {
-      const activeFolder = displayedFolders?.[currentFolderIndex];
       const aiFolderId = activeAiFolderIndex > 1 ? aiFolderTabs[activeAiFolderIndex]?.id : undefined;
       return (
         <ChatList
           folderType="agent"
-          folderId={isPaseoWorkbench && activeFolder?.id !== ALL_FOLDER_ID ? activeFolder?.id : undefined}
           isAiList={isAiList}
           aiFolderKind={isAiList ? (activeAiFolderIndex === 1 ? 'bots' : aiFolderId ? 'custom' : 'all') : undefined}
           aiFolderId={aiFolderId}
@@ -347,7 +327,7 @@ const ChatFolders = ({
 
   const hasFolders = isAiList
     ? aiFolderTabs.length > 0
-    : folderTabs && (isPaseoWorkbench ? folderTabs.length > 0 : folderTabs.length > 1);
+    : !isPaseoWorkbench && folderTabs && folderTabs.length > 1;
   const shouldRenderFolders = hasFolders && !isFoldersSidebarShown;
 
   return (

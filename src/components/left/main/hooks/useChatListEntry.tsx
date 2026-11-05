@@ -208,15 +208,6 @@ export default function useChatListEntry({
   ]);
 
   function renderSubtitle() {
-    if (chat?.isPaseoAgentSession) {
-      const subtitle = chat.paseoActivityText || chat.paseoSubtitle;
-      return subtitle && (
-        <p className="last-message" dir="auto">
-          <span className="last-message-summary">{renderText(subtitle)}</span>
-        </p>
-      );
-    }
-
     if (chat && isChatCommunity(chat)) {
       return (
         <ChatGroupedLastMessage

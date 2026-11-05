@@ -10,7 +10,7 @@ import {
   ALL_FOLDER_ID, FOLDERS_POSITION_LEFT, FOLDERS_POSITION_TOP, STICKER_SIZE_FOLDER_SETTINGS,
 } from '../../../../config';
 import { getFolderDescriptionText } from '../../../../global/helpers';
-import { getOrderedPaseoProjectFolderIds } from '../../../../global/paseoWorkbench';
+import { getPaseoProjectFolderIds } from '../../../../global/paseoWorkbench';
 import { selectIsCurrentUserPremium } from '../../../../global/selectors';
 import { selectCurrentLimit } from '../../../../global/selectors/limits';
 import buildClassName from '../../../../util/buildClassName';
@@ -107,7 +107,6 @@ const SettingsFoldersMain = ({
     loadAiConversationFolders,
     deleteAiConversationFolder,
     reorderAiConversationFolders,
-    setPaseoProjectFolderOrder,
   } = getActions();
   const currentFoldersById = useMemo(() => {
     if (scope === 'chats') return foldersById;
@@ -118,7 +117,6 @@ const SettingsFoldersMain = ({
         title: { text: folder.title },
         includedChatIds: folder.conversationIds,
         excludedChatIds: [],
-        emoticon: '📁',
       };
       return result;
     }, {});
@@ -257,8 +255,6 @@ const SettingsFoldersMain = ({
     setState((current) => {
       if (scope === 'ai') {
         reorderAiConversationFolders({ folderIds: current.dragOrderIds! });
-      } else if (scope === 'paseo') {
-        setPaseoProjectFolderOrder({ folderIds: current.dragOrderIds! });
       } else {
         sortChatFolders({ folderIds: current.dragOrderIds! });
       }
@@ -269,7 +265,7 @@ const SettingsFoldersMain = ({
         draggedIndex: undefined,
       };
     });
-  }, [reorderAiConversationFolders, scope, setPaseoProjectFolderOrder, sortChatFolders]);
+  }, [reorderAiConversationFolders, scope, sortChatFolders]);
 
   const handleDeleteAiFolder = useCallback(() => {
     if (folderToDelete === undefined) return;
@@ -294,11 +290,13 @@ const SettingsFoldersMain = ({
       <SettingsFolderScopeTabs scope={scope} onChange={onScopeChange} />
       {scope !== 'paseo' && (
         <IslandOutside className="settings-content-header">
-          <AnimatedIconWithPreview
-            size={STICKER_SIZE_FOLDER_SETTINGS}
-            tgsUrl={LOCAL_TGS_URLS.FoldersAll}
-            className="settings-content-icon"
-          />
+          {scope !== 'ai' && (
+            <AnimatedIconWithPreview
+              size={STICKER_SIZE_FOLDER_SETTINGS}
+              tgsUrl={LOCAL_TGS_URLS.FoldersAll}
+              className="settings-content-icon"
+            />
+          )}
 
           <p className="settings-item-description mb-3" dir="auto">
             {lang('CreateNewFilterInfo')}
@@ -335,6 +333,7 @@ const SettingsFoldersMain = ({
         {scope === 'paseo' && (
           <ListItem className="no-icon settings-sortable-item" narrow inactive multiline isStatic>
             <span className="title">{lang('FilterAllChatsShort')}</span>
+            <span className="subtitle">{lang('PaseoAgentSession')}</span>
           </ListItem>
         )}
         <div className="settings-sortable-container" style={`height: ${(folderIds?.length || 0) * FOLDER_HEIGHT_PX}px`}>
@@ -346,6 +345,28 @@ const SettingsFoldersMain = ({
 
             const shouldRenderColor = scope === 'chats'
               && folder?.color !== undefined && folder.color !== -1 && areTagsEnabled;
+
+            if (scope === 'paseo') {
+              return (
+                <ListItem
+                  key={folder.id}
+                  className="no-icon settings-sortable-item"
+                  narrow
+                  inactive
+                  multiline
+                  isStatic
+                >
+                  <span className="title">
+                    {renderTextWithEntities({
+                      text: folder.title.text,
+                      entities: folder.title.entities,
+                      noCustomEmojiPlayback: folder.noTitleAnimations,
+                    })}
+                  </span>
+                  <span className="subtitle">{folder.subtitle}</span>
+                </ListItem>
+              );
+            }
 
             if (scope === 'chats' && folder.id === ALL_FOLDER_ID) {
               return (
@@ -393,9 +414,9 @@ const SettingsFoldersMain = ({
                 <ListItem
                   className="drag-item no-icon settings-sortable-item"
                   narrow
-                  secondaryIcon={scope === 'paseo' ? undefined : 'more'}
+                  secondaryIcon="more"
                   multiline
-                  contextActions={scope === 'paseo' ? undefined : [
+                  contextActions={[
                     {
                       handler: () => {
                         if (scope === 'ai') {
@@ -410,7 +431,7 @@ const SettingsFoldersMain = ({
                     },
                   ]}
 
-                  onClick={scope === 'paseo' ? undefined : () => {
+                  onClick={() => {
                     if (isBlocked) {
                       openLimitReachedModal({
                         limit: 'dialogFilters',
@@ -564,8 +585,8 @@ export default memo(withGlobal<OwnProps>(
         ? (isAiFoldersLoaded ? aiFolders.orderedIds : undefined)
         : scope === 'paseo'
           ? (isPaseoFoldersLoaded && paseoWorkbench
-            ? getOrderedPaseoProjectFolderIds(paseoWorkbench.projectFoldersById, paseoWorkbench.projectFolderOrder)
-            : undefined)
+            ? getPaseoProjectFolderIds(paseoWorkbench.projectFoldersById)
+            : MEMO_EMPTY_ARRAY)
           : folderIds,
       foldersById,
       aiFoldersById: isAiFoldersLoaded ? aiFolders.byId : {},
