@@ -13,6 +13,7 @@ import type { UserAuthParams } from './auth';
 import type { DownloadFileParams, DownloadFileWithDcParams, DownloadMediaParams } from './downloadFile';
 import type { UploadFileParams } from './uploadFile';
 
+import { USE_GRAMSRV_MTPROTO } from '../../../config';
 import Deferred from '../../../util/Deferred';
 import { concat } from '../../../util/encoding/buffer';
 import { toJSNumber } from '../../../util/numbers';
@@ -99,6 +100,7 @@ const EXPORTED_SENDER_RECONNECT_TIMEOUT = 1000; // 1 sec
 const EXPORTED_SENDER_RELEASE_TIMEOUT = 30000; // 30 sec
 const WEBDOCUMENT_REQUEST_PART_SIZE = 131072; // 128kb
 const STATIC_MAP_REQUEST_PART_SIZE = 524288; // 512kb
+const GRAMSRV_CONNECTION_RETRIES = 5;
 
 const PING_INTERVAL = 3000; // 3 sec
 const PING_TIMEOUT = 5000; // 5 sec
@@ -224,7 +226,7 @@ class TelegramClient {
     apiHash?: string,
     opts: Partial<TelegramClientParams> = TelegramClient.DEFAULT_OPTIONS,
   ) {
-    const hasLocalGramsrvEndpoint = import.meta.env.DEV && Boolean(import.meta.env.TG_LOCAL_MTPROTO_WS_URL);
+    const hasLocalGramsrvEndpoint = USE_GRAMSRV_MTPROTO;
     const clientApiId = Number.isFinite(apiId) ? apiId! : 0;
     const clientApiHash = apiHash || '';
     if (!hasLocalGramsrvEndpoint && (!clientApiId || !clientApiHash)) {
@@ -235,8 +237,8 @@ class TelegramClient {
     this.apiHash = clientApiHash;
     this.defaultDcId = args.dcId || DEFAULT_DC_ID;
     this._useIPV6 = args.useIPV6;
-    this._shouldForceHttpTransport = args.shouldForceHttpTransport;
-    this._shouldAllowHttpTransport = args.shouldAllowHttpTransport;
+    this._shouldForceHttpTransport = USE_GRAMSRV_MTPROTO ? false : args.shouldForceHttpTransport;
+    this._shouldAllowHttpTransport = USE_GRAMSRV_MTPROTO ? false : args.shouldAllowHttpTransport;
     this._shouldDebugExportedSenders = args.shouldDebugExportedSenders;
     // this._entityCache = new Set()
     if (typeof args.baseLogger === 'string') {
@@ -260,8 +262,8 @@ class TelegramClient {
     this._eventBuilders = [];
 
     this._requestRetries = args.requestRetries;
-    this._connectionRetries = args.connectionRetries;
-    this._connectionRetriesToFallback = args.connectionRetriesToFallback;
+    this._connectionRetries = USE_GRAMSRV_MTPROTO ? GRAMSRV_CONNECTION_RETRIES : args.connectionRetries;
+    this._connectionRetriesToFallback = USE_GRAMSRV_MTPROTO ? 0 : args.connectionRetriesToFallback;
     this._retryDelay = args.retryDelay || 0;
     this._retryMainConnectionDelay = args.retryMainConnectionDelay || 0;
 
@@ -408,6 +410,8 @@ class TelegramClient {
   }
 
   async setForceHttpTransport(forceHttpTransport: boolean) {
+    if (USE_GRAMSRV_MTPROTO) return;
+
     this._shouldForceHttpTransport = forceHttpTransport;
     this.disconnect();
     this._sender = undefined;
@@ -415,6 +419,8 @@ class TelegramClient {
   }
 
   async setAllowHttpTransport(allowHttpTransport: boolean) {
+    if (USE_GRAMSRV_MTPROTO) return;
+
     this._shouldAllowHttpTransport = allowHttpTransport;
     this.disconnect();
     this._sender = undefined;

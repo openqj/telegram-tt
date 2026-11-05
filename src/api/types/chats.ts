@@ -36,6 +36,12 @@ export type ApiChatInviteJoinWebView = {
 export interface ApiChat {
   id: string;
   folderId?: number;
+  isAgent?: true;
+  isPaseoAgentSession?: true;
+  paseoSubtitle?: string;
+  paseoActivityText?: string;
+  isSystemPresetAgent?: true;
+  isHermesAgentBot?: true;
   type: ApiChatType;
   title: string;
   isVerified?: true;

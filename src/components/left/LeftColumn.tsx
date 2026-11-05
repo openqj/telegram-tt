@@ -12,6 +12,7 @@ import {
   type AnimationLevel, LeftColumnContent, type SettingsHighlight, SettingsScreens,
 } from '../../types';
 
+import { isAgentConversation } from '../../global/helpers/chats';
 import {
   selectCurrentChat, selectIsChatListPanelOpen, selectIsCurrentUserFrozen, selectIsForumPanelOpen,
   selectPeerHasProfileBackground, selectTabState,
@@ -33,10 +34,12 @@ import { useStateRef } from '../../hooks/useStateRef';
 import useSyncEffect from '../../hooks/useSyncEffect';
 import useSyncEffectWithPrevDeps from '../../hooks/useSyncEffectWithPrevDeps';
 
+import PaseoWorkbenchDataAdapter, { prefetchPaseoDaemonClient } from '../paseoAgent/PaseoWorkbenchDataAdapter';
 import Transition from '../ui/Transition';
 import ArchivedChats from './ArchivedChats.async';
 import LeftMain from './main/LeftMain';
 import NewChat from './newChat/NewChat.async';
+import PrimaryNavigation from './PrimaryNavigation';
 import Settings from './settings/Settings.async';
 
 import './LeftColumn.scss';
@@ -68,6 +71,7 @@ type StateProps = {
   isArchivedStoryRibbonShown?: boolean;
   isAccountFrozen?: boolean;
   hasProfileBackground?: boolean;
+  isAiChatOpen?: boolean;
 };
 
 enum ContentType {
@@ -108,6 +112,7 @@ function LeftColumn({
   isArchivedStoryRibbonShown,
   isAccountFrozen,
   hasProfileBackground,
+  isAiChatOpen,
   isFoldersSidebarShown,
 }: OwnProps & StateProps) {
   const {
@@ -122,10 +127,22 @@ function LeftColumn({
     openLeftColumnContent,
     openSettingsScreen,
     openQuickChatPicker,
+    closeForumPanel,
+    closeCommunityPanel,
+    setPaseoWorkbenchActive,
   } = getActions();
 
+  const [isPaseoWorkbenchOpen, setIsPaseoWorkbenchOpen] = useState(false);
+  const [shouldSkipWorkbenchSettingsTransition, setShouldSkipWorkbenchSettingsTransition] = useState(false);
+  const [isAiListOpen, setIsAiListOpen] = useState(false);
   const [contactsFilter, setContactsFilter] = useState<string>('');
   const [foldersState, foldersDispatch] = useFoldersReducer();
+
+  useEffect(() => {
+    if (isAiChatOpen) {
+      setIsAiListOpen(true);
+    }
+  }, [isAiChatOpen]);
 
   // Used to reset child components in background.
   const [lastResetTime, setLastResetTime] = useState<number>(0);
@@ -147,6 +164,12 @@ function LeftColumn({
       contentType = ContentType.NewGroup;
       break;
   }
+
+  useEffect(() => {
+    if (shouldSkipWorkbenchSettingsTransition && contentType === ContentType.Settings) {
+      setShouldSkipWorkbenchSettingsTransition(false);
+    }
+  }, [contentType, shouldSkipWorkbenchSettingsTransition]);
 
   const settingsSearchOriginRef = useRef<SettingsScreens>();
   const settingsSearchSessionIdRef = useRef(0);
@@ -484,6 +507,64 @@ function LeftColumn({
     openQuickChatPicker();
   });
 
+  const handleNavigation = useLastCallback((index: number) => {
+    if (isPaseoWorkbenchOpen && (index === 0 || index === 1)) {
+      setPaseoWorkbenchActive({ isActive: false });
+      setIsPaseoWorkbenchOpen(false);
+      openChat({ id: undefined, shouldReplaceHistory: true });
+    }
+
+    switch (index) {
+      case 0:
+        setShouldSkipWorkbenchSettingsTransition(false);
+        setIsAiListOpen(false);
+        handleReset(true);
+        closeForumPanel();
+        closeCommunityPanel();
+        if (isChatOpen && isAiChatOpen) {
+          openChat({ id: undefined, shouldReplaceHistory: true });
+        }
+        break;
+      case 1: {
+        setShouldSkipWorkbenchSettingsTransition(false);
+        setIsAiListOpen(true);
+        handleReset(true);
+        closeForumPanel();
+        closeCommunityPanel();
+        if (isChatOpen && !isAiChatOpen) {
+          openChat({ id: undefined, shouldReplaceHistory: true });
+        }
+        break;
+      }
+      case 2:
+        setShouldSkipWorkbenchSettingsTransition(false);
+        prefetchPaseoDaemonClient();
+        setPaseoWorkbenchActive({ isActive: true });
+        setIsPaseoWorkbenchOpen(true);
+        handleReset(true);
+        openChat({ id: undefined, shouldReplaceHistory: true });
+        break;
+      case 3:
+        setIsAiListOpen(false);
+        if (isPaseoWorkbenchOpen) {
+          setPaseoWorkbenchActive({ isActive: false });
+          openChat({ id: undefined, shouldReplaceHistory: true });
+        }
+        setShouldSkipWorkbenchSettingsTransition(isPaseoWorkbenchOpen);
+        openSettingsScreen({ screen: SettingsScreens.Main });
+        if (isPaseoWorkbenchOpen) {
+          setIsPaseoWorkbenchOpen(false);
+        }
+        break;
+      default:
+        break;
+    }
+  });
+
+  const activeNavigationTab = isPaseoWorkbenchOpen
+    ? 2
+    : contentKey === LeftColumnContent.Settings ? 3 : isAiListOpen || isAiChatOpen ? 1 : 0;
+
   useHotkeys(useMemo(() => ({
     'Mod+Shift+F': handleHotkeySearch,
     'Mod+K': handleQuickChatPicker,
@@ -597,26 +678,32 @@ function LeftColumn({
             onTopicSearch={handleTopicSearch}
             isAccountFrozen={isAccountFrozen}
             isFoldersSidebarShown={isFoldersSidebarShown}
+            isAiList={isAiListOpen}
+            isPaseoWorkbench={isPaseoWorkbenchOpen}
           />
         );
     }
   }
 
   return (
-    <Transition
-      ref={ref}
-      name={resolveTransitionName('layers', animationLevel, shouldSkipHistoryAnimations)}
-      renderCount={RENDER_COUNT}
-      activeKey={contentType}
-      shouldCleanup
-      cleanupExceptionKey={ContentType.Main}
-      shouldWrap
-      wrapExceptionKey={ContentType.Main}
-      id="LeftColumn"
-      withSwipeControl
-    >
-      {renderContent}
-    </Transition>
+    <div ref={ref} id="LeftColumn">
+      <Transition
+        name={resolveTransitionName(
+          'layers', animationLevel, shouldSkipHistoryAnimations || shouldSkipWorkbenchSettingsTransition,
+        )}
+        renderCount={RENDER_COUNT}
+        activeKey={contentType}
+        shouldCleanup
+        cleanupExceptionKey={ContentType.Main}
+        shouldWrap
+        wrapExceptionKey={ContentType.Main}
+        withSwipeControl
+      >
+        {renderContent}
+      </Transition>
+      <PrimaryNavigation activeTab={activeNavigationTab} onSwitchTab={handleNavigation} />
+      <PaseoWorkbenchDataAdapter isOpen={isPaseoWorkbenchOpen} />
+    </div>
   );
 }
 
@@ -648,6 +735,7 @@ export default memo(withGlobal<OwnProps>(
     const { animationLevel } = selectSharedSettings(global);
     const currentChat = selectCurrentChat(global);
     const isChatOpen = Boolean(currentChat?.id);
+    const isAiChatOpen = isAgentConversation(currentChat);
     const isForumPanelOpen = selectIsForumPanelOpen(global);
     const isChatListPanelOpen = selectIsChatListPanelOpen(global);
     const forumPanelChatId = tabState.forumPanelChatId;
@@ -671,6 +759,7 @@ export default memo(withGlobal<OwnProps>(
       archiveSettings,
       isArchivedStoryRibbonShown: isArchivedRibbonShown,
       isAccountFrozen,
+      isAiChatOpen,
       hasProfileBackground: currentUserId
         ? selectPeerHasProfileBackground(global, currentUserId) : undefined,
       contentKey: leftColumn.contentKey,

@@ -211,7 +211,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
       if (!isFirstGlobalResolved) return;
 
       const global = getGlobal();
-      if (!selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== true) return;
 
       const { initialArgs } = data;
       initApi(getActions().apiUpdate, initialArgs);
@@ -260,7 +260,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
 
-      if (!selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== true) return;
 
       channel.postMessage({
         type: 'globalUpdate',
@@ -272,7 +272,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
     case 'messageCallback': {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
-      if (selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== false) return;
 
       handleMethodCallback(data);
       break;
@@ -281,7 +281,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
     case 'localDbUpdate': {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
-      if (selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== false) return;
 
       const {
         batchedUpdates,
@@ -300,7 +300,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
     case 'localDbUpdateFull': {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
-      if (selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== false) return;
 
       const { localDb } = data;
 
@@ -312,7 +312,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
 
-      if (selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== false) return;
 
       handleMethodResponse(data);
       break;
@@ -321,7 +321,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
     case 'cancelApiProgress': {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
-      if (!selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== true) return;
 
       const { messageId } = data;
 
@@ -332,7 +332,7 @@ export function handleMessage({ data }: { data: BroadcastChannelMessage }) {
     case 'callApi': {
       if (!isFirstGlobalResolved) return;
       const global = getGlobal();
-      if (!selectTabState(global).isMasterTab) return;
+      if (selectTabState(global)?.isMasterTab !== true) return;
 
       const {
         name, messageId, token, args, withCallback,

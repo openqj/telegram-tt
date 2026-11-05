@@ -28,6 +28,7 @@ import {
   isChatGroup,
   isChatMonoforum,
   isSystemBot,
+  isSystemPresetAgentConversation,
 } from '../../global/helpers';
 import {
   selectBot,
@@ -139,6 +140,7 @@ type StateProps = {
   isChannelWithAvatars?: boolean;
   isBot?: boolean;
   isNonContact?: boolean;
+  isSystemPresetAgentChat?: boolean;
   nameChangeDate?: number;
   photoChangeDate?: number;
   isSynced?: boolean;
@@ -220,6 +222,14 @@ function compareRenderedMessages(first: ApiMessage, second: ApiMessage) {
     || first.id - second.id;
 }
 
+const NOTEBOOK_WELCOME_MESSAGE_REGEX = /^主人，我是.+，我可以为你接收并执行任务、汇报进度并返回结果。$/;
+
+function isNotebookWelcomeMessage(message?: ApiMessage) {
+  return !message?.isOutgoing && Boolean(
+    message?.content.text && NOTEBOOK_WELCOME_MESSAGE_REGEX.test(message.content.text.text),
+  );
+}
+
 const runDebouncedForScroll = debounce((cb) => cb(), SCROLL_DEBOUNCE, false);
 
 function getShouldReleaseLiveTail(liveTailElement: HTMLDivElement) {
@@ -254,6 +264,7 @@ const MessageList = ({
   isOwner,
   isBot,
   isNonContact,
+  isSystemPresetAgentChat,
   nameChangeDate,
   photoChangeDate,
   messageIds,
@@ -356,7 +367,10 @@ const MessageList = ({
       };
     }
 
-    const normalMessages = messageIds.map((id) => anchoredById?.[id] || messagesById[id]).filter(Boolean);
+    const normalMessages = messageIds
+      .map((id) => anchoredById?.[id] || messagesById[id])
+      .filter((message): message is ApiMessage => Boolean(message))
+      .filter((message) => !isSystemPresetAgentChat || !isNotebookWelcomeMessage(message));
     const normalDates = normalMessages.map(({ date }) => date);
     const oldestDate = normalDates.length ? Math.min(...normalDates) : undefined;
     const newestDate = normalDates.length ? Math.max(...normalDates) : undefined;
@@ -377,7 +391,9 @@ const MessageList = ({
       renderMessageIds: renderMessages.map(({ id }) => id),
       renderMessagesById: buildCollectionByKey(renderMessages, 'id'),
     };
-  }, [anchoredById, ephemeralById, isViewportNewest, messageIds, messagesById, threadId, type]);
+  }, [
+    anchoredById, ephemeralById, isSystemPresetAgentChat, isViewportNewest, messageIds, messagesById, threadId, type,
+  ]);
   const { renderMessageIds, renderMessagesById } = renderData;
   const previousRenderMessageIds = usePrevious(renderMessageIds);
   const addedMessageInfo = useMemo(() => (isViewportNewest ? getAddedMessageInfo(
@@ -560,10 +576,19 @@ const MessageList = ({
       }
     });
 
+    const messagesByOriginalId = new Map<number, ApiMessage>();
+    listedMessages.forEach((message) => {
+      const originalId = getMessageOriginalId(message);
+      const currentMessage = messagesByOriginalId.get(originalId);
+      if (!currentMessage || (isLocalMessageId(currentMessage.id) && !isLocalMessageId(message.id))) {
+        messagesByOriginalId.set(originalId, message);
+      }
+    });
+
     // Service notifications have local IDs which may be not in sync with real message history
     return listedMessages.length
       ? groupMessages(
-        listedMessages.sort(compareRenderedMessages),
+        [...messagesByOriginalId.values()].sort(compareRenderedMessages),
         memoUnreadDividerBeforeIdRef.current,
         !isForum ? Number(threadId) : undefined,
         isChatWithSelf,
@@ -1329,7 +1354,7 @@ const MessageList = ({
     Content.StarsRequired
   ) : isContactRequirePremium && !hasMessages ? (
     Content.PremiumRequired
-  ) : (isBot || isNonContact) && !hasMessages && threadId === MAIN_THREAD_ID ? (
+  ) : (isBot || isNonContact || isSystemPresetAgentChat) && !hasMessages && threadId === MAIN_THREAD_ID ? (
     Content.AccountInfo
   ) : shouldRenderGreeting ? (
     Content.ContactGreeting
@@ -1471,6 +1496,7 @@ export default memo(withGlobal<OwnProps>(
       threadId === MAIN_THREAD_ID
       && !messageIds && readState && !readState.unreadCount && !focusingId && lastMessage && !lastMessage.groupedId
     );
+    const isNotebookWelcomePreview = isSystemPresetAgentConversation(chat) && isNotebookWelcomeMessage(lastMessage);
 
     const chatBot = selectBot(global, chatId);
     const isNonContact = Boolean(userFullInfo?.settings?.canAddContact);
@@ -1520,6 +1546,7 @@ export default memo(withGlobal<OwnProps>(
       isAnonymousForwards: isAnonymousForwardsChat(chatId),
       isBot: Boolean(chatBot),
       isNonContact,
+      isSystemPresetAgentChat: isSystemPresetAgentConversation(chat),
       nameChangeDate,
       photoChangeDate,
       isSynced: global.isSynced,
@@ -1542,7 +1569,7 @@ export default memo(withGlobal<OwnProps>(
       isEmptyThread,
       currentUserId,
       isChatProtected: selectIsChatProtected(global, chatId),
-      lastMessage: withLastMessageWhenPreloading ? lastMessage : undefined,
+      lastMessage: withLastMessageWhenPreloading && !isNotebookWelcomePreview ? lastMessage : undefined,
       isAccountFrozen,
       hasCustomGreeting,
       isAppConfigLoaded,

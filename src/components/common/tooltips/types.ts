@@ -2,6 +2,9 @@ import type { Range as TiptapRange } from '@tiptap/core';
 import type { SuggestionProps } from '@tiptap/suggestion';
 
 import type {
+  ApiAgentComposerConfig,
+  ApiAgentWorkspaceFile,
+  ApiAgentWorkspaceSkill,
   ApiBotCommand,
   ApiBotInlineMediaResult,
   ApiBotInlineResult,
@@ -40,16 +43,35 @@ export type RichEditorTooltipContext = {
   isInScheduledList?: boolean;
   isCurrentUserPremium?: boolean;
   canSendGifs?: boolean;
+  isAgentChat?: boolean;
+  isHermesAgentBot?: boolean;
+  agentComposerConfig?: ApiAgentComposerConfig;
+  agentModel?: string;
+  agentReasoningEffort?: 'low' | 'medium' | 'high';
+  agentUser?: ApiUser;
   isRichInputExpanded?: boolean;
   isFormatterDisabled?: boolean;
   isFormatterContextMenuOpen?: boolean;
 };
 
-export type RichEditorTooltipSurface = 'emoji' | 'customEmoji' | 'mention' | 'sticker' | 'command' | 'inlineBot';
+export type RichEditorTooltipSurface =
+  | 'emoji' | 'customEmoji' | 'mention' | 'skill' | 'sticker' | 'command' | 'inlineBot';
+export type AgentComposerCommand = {
+  type: 'agentComposerCommand';
+  setting: 'model' | 'reasoning' | 'submenu' | 'command' | 'action' | 'prompt';
+  value: string;
+  command: string;
+  description: string;
+  insertText?: string;
+};
+
 export type RichEditorTooltipItem =
   Emoji
   | ApiSticker
   | ApiUser
+  | ApiAgentWorkspaceFile
+  | ApiAgentWorkspaceSkill
+  | AgentComposerCommand
   | ApiBotCommand
   | ApiQuickReply
   | ApiBotInlineResult
@@ -91,6 +113,7 @@ type RichEditorStickerTooltipConfig = RichEditorTooltipSurfaceConfig & {
 
 type RichEditorCommandTooltipConfig = RichEditorTooltipSurfaceConfig & {
   onSelect: NoneToVoidFunction;
+  onAgentSelect?: (command: AgentComposerCommand) => void;
 };
 
 type RichEditorInlineBotTooltipConfig = RichEditorTooltipSurfaceConfig & {
@@ -106,7 +129,14 @@ type RichEditorInlineBotTooltipConfig = RichEditorTooltipSurfaceConfig & {
 export type RichEditorTooltipsConfig = {
   emoji?: RichEditorEmojiTooltipConfig;
   customEmoji?: RichEditorCustomEmojiTooltipConfig;
-  mention?: RichEditorTooltipSurfaceConfig;
+  mention?: RichEditorTooltipSurfaceConfig & {
+    fetchAgentWorkspaceFiles?: (query: string) => Promise<ApiAgentWorkspaceFile[]>;
+    onAgentWorkspaceFileSelect?: (file: ApiAgentWorkspaceFile) => void;
+  };
+  skill?: RichEditorTooltipSurfaceConfig & {
+    fetchAgentWorkspaceSkills?: (query: string) => Promise<ApiAgentWorkspaceSkill[]>;
+    onAgentWorkspaceSkillSelect?: (skill: ApiAgentWorkspaceSkill) => void;
+  };
   sticker?: RichEditorStickerTooltipConfig;
   command?: RichEditorCommandTooltipConfig;
   inlineBot?: RichEditorInlineBotTooltipConfig;

@@ -230,6 +230,12 @@ export const INITIAL_GLOBAL_STATE: GlobalState = {
     areTagsEnabled: false,
   },
 
+  aiConversationFolders: {
+    byId: {},
+    isLoading: false,
+    isLoaded: false,
+  },
+
   fileUploads: {
     byMessageKey: {},
   },

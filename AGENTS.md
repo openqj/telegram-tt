@@ -5,6 +5,7 @@ Telegram web app using TypeScript and Teact, a custom React-like UI library. Fol
 ## Scope and workflow
 
 - Keep changes directly related to the request. Search for existing types, functions, components, and hooks before adding them.
+- For every task that changes Web frontend source, tests, runtime, or build configuration, update a workspace record under `../cross-client-changes/` and register it in `../ANDROID_AGENT_AI_CROSS_PLATFORM_SYNC.md`. Include the base/head commits, changed paths, user-visible behavior, and whether Android, iOS, and macOS need alignment; mark no-sync clients with a reason. Follow the workspace AI-owned dispatch flow for applicable cross-client work.
 - Use existing dependencies only. If the task requires a new library, stop and explain why.
 - Make routine implementation decisions from the code and task context. Ask when ambiguity materially changes the work; continue independent, authorized work meanwhile.
 - Only write tests when directly prompted to do so.

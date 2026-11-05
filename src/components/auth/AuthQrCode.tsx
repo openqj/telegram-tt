@@ -50,7 +50,7 @@ const AuthCode = ({
     loginWithPasskey,
   } = getActions();
 
-  const { state, qrCode: authQrCode, passkeyOption } = auth;
+  const { qrCode: authQrCode, passkeyOption } = auth;
 
   const suggestedLanguage = getSuggestedLanguage();
   const lang = useLang();
@@ -131,8 +131,6 @@ const AuthCode = ({
     loginWithPasskey();
   });
 
-  const isAuthReady = state === 'authorizationStateWaitQrCode';
-
   return (
     <div id="auth-qr-form" className="custom-scroll">
       {hasActiveAccount && (
@@ -173,11 +171,9 @@ const AuthCode = ({
           <li><span>{lang('LoginQRHelp2', undefined, { withNodes: true, withMarkdown: true })}</span></li>
           <li><span>{lang('LoginQRHelp3')}</span></li>
         </ol>
-        {isAuthReady && (
-          <Button className="auth-button" isText onClick={handleReturnToAuthPhoneNumber}>
-            {lang('LoginQRCancel')}
-          </Button>
-        )}
+        <Button className="auth-button" isText onClick={handleReturnToAuthPhoneNumber}>
+          {lang('LoginQRCancel')}
+        </Button>
         {passkeyOption && (
           <Button className="auth-button" isText onClick={handleLoginWithPasskey}>
             {lang('LoginPasskey')}

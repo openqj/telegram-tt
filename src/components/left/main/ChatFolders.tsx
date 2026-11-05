@@ -1,12 +1,14 @@
-import { memo, useEffect, useRef } from '@teact';
+import { memo, useEffect, useMemo, useRef, useState } from '@teact';
 import { getActions, withGlobal } from '../../../global';
 
-import type { ApiChatFolder, ApiChatlistExportedInvite } from '../../../api/types';
+import type { ApiAiConversationFolder, ApiChatFolder, ApiChatlistExportedInvite } from '../../../api/types';
 import type { GlobalState } from '../../../global/types';
 import type { FolderEditDispatch } from '../../../hooks/reducers/useFoldersReducer';
 import type { AnimationLevel } from '../../../types';
+import type { TabWithProperties } from '../../ui/TabList';
 
 import { ALL_FOLDER_ID } from '../../../config';
+import { getOrderedPaseoProjectFolderIds } from '../../../global/paseoWorkbench';
 import { selectTabState } from '../../../global/selectors';
 import { selectCurrentLimit } from '../../../global/selectors/limits';
 import { selectSharedSettings } from '../../../global/selectors/sharedState';
@@ -16,6 +18,7 @@ import captureEscKeyListener from '../../../util/captureEscKeyListener';
 import { captureEvents, SwipeDirection } from '../../../util/captureEvents';
 import { resolveTransitionName } from '../../../util/resolveTransitionName';
 
+import useSelector from '../../../hooks/data/useSelector';
 import useDerivedState from '../../../hooks/useDerivedState';
 import useFolderTabs from '../../../hooks/useFolderTabs';
 import useHistoryBack from '../../../hooks/useHistoryBack';
@@ -33,6 +36,8 @@ type OwnProps = {
   foldersDispatch: FolderEditDispatch;
   isForumPanelOpen?: boolean;
   isFoldersSidebarShown?: boolean;
+  isAiList?: boolean;
+  isPaseoWorkbench?: boolean;
 };
 
 type StateProps = {
@@ -50,10 +55,15 @@ type StateProps = {
   hasArchivedStories?: boolean;
   archiveSettings: GlobalState['archiveSettings'];
   isStoryRibbonShown?: boolean;
+  aiConversationFolders: GlobalState['aiConversationFolders'];
 };
 
 const SAVED_MESSAGES_HOTKEY = '0';
 const FIRST_FOLDER_INDEX = 0;
+const AI_ALL_TAB_ID = -10001;
+const AI_BOTS_TAB_ID = -10002;
+const EMPTY_PASEO_PROJECT_FOLDERS: Record<number, ApiChatFolder> = {};
+const EMPTY_AI_FOLDERS: Record<number, ApiAiConversationFolder> = {};
 
 const ChatFolders = ({
   foldersDispatch,
@@ -73,12 +83,30 @@ const ChatFolders = ({
   archiveSettings,
   isStoryRibbonShown,
   isFoldersSidebarShown,
+  isAiList,
+  isPaseoWorkbench,
+  aiConversationFolders,
 }: OwnProps & StateProps) => {
   const {
     loadChatFolders,
+    loadAiConversationFolders,
     setActiveChatFolder,
+    setActivePaseoFolder,
     openChat,
   } = getActions();
+  const hasCurrentAiFolderState = aiConversationFolders.ownerUserId === currentUserId;
+  const aiFoldersById = hasCurrentAiFolderState ? aiConversationFolders.byId : EMPTY_AI_FOLDERS;
+  const aiFolderIds = hasCurrentAiFolderState ? aiConversationFolders.orderedIds : undefined;
+
+  const paseoWorkbench = useSelector((global) => global.paseoWorkbench);
+  const paseoProjectFolders = paseoWorkbench?.projectFoldersById || EMPTY_PASEO_PROJECT_FOLDERS;
+  const paseoOrderedFolderIds = useMemo(() => [
+    ALL_FOLDER_ID,
+    ...getOrderedPaseoProjectFolderIds(paseoProjectFolders, paseoWorkbench?.projectFolderOrder),
+  ], [paseoProjectFolders, paseoWorkbench?.projectFolderOrder]);
+  const currentFolderIndex = isPaseoWorkbench ? paseoWorkbench?.activePaseoFolder || 0 : activeChatFolder;
+  const [activeAiFolderIndex, setActiveAiFolderIndex] = useState(0);
+  const activeFolderIndex = isAiList ? activeAiFolderIndex : currentFolderIndex;
 
   const transitionRef = useRef<HTMLDivElement>();
 
@@ -91,16 +119,28 @@ const ChatFolders = ({
   }, []);
 
   useEffect(() => {
+    if (isAiList && (aiConversationFolders.ownerUserId !== currentUserId || !aiConversationFolders.isLoaded)) {
+      loadAiConversationFolders();
+    }
+  }, [
+    aiConversationFolders.isLoaded, aiConversationFolders.ownerUserId, currentUserId, isAiList, loadAiConversationFolders,
+  ]);
+
+  useEffect(() => {
+    setActiveAiFolderIndex(0);
+  }, [currentUserId]);
+
+  useEffect(() => {
     const activeList = transitionRef.current?.querySelector<HTMLElement>('.chat-list.Transition_slide-active');
     updateScrollState(activeList ?? undefined);
-  }, [activeChatFolder, updateScrollState]);
+  }, [activeFolderIndex, isAiList, isPaseoWorkbench, updateScrollState]);
 
   const {
     ref,
     shouldRender: shouldRenderStoryRibbon,
     getIsClosing: getIsStoryRibbonClosing,
   } = useShowTransition({
-    isOpen: isStoryRibbonShown,
+    isOpen: Boolean(isStoryRibbonShown && !isAiList && !isPaseoWorkbench),
     className: false,
     withShouldRender: true,
   });
@@ -114,7 +154,14 @@ const ChatFolders = ({
     });
   });
 
-  const { displayedFolders, folderTabs } = useFolderTabs({
+  const folderTabsParams = isPaseoWorkbench ? {
+    sidebarMode: false,
+    noEmoticons: true,
+    orderedFolderIds: paseoOrderedFolderIds,
+    chatFoldersById: paseoProjectFolders,
+    maxFolders: paseoOrderedFolderIds.length,
+    isReadOnly: true as const,
+  } : {
     sidebarMode: false,
     noEmoticons: true,
     orderedFolderIds,
@@ -123,20 +170,45 @@ const ChatFolders = ({
     maxChatLists,
     folderInvitesById,
     maxFolderInvites,
-  });
+  };
+  const { displayedFolders, folderTabs } = useFolderTabs(folderTabsParams);
+  const aiFolderTabs = useMemo<TabWithProperties[]>(() => [
+    { id: AI_ALL_TAB_ID, title: lang('FilterAllChatsShort'), emoticon: '💬' },
+    { id: AI_BOTS_TAB_ID, title: lang('FilterBots'), emoticon: '🤖' },
+    ...(aiFolderIds || []).flatMap((id) => {
+      const folder = aiFoldersById[id];
+      return folder ? [{ id, title: folder.title, emoticon: '📁' }] : [];
+    }),
+  ], [aiFolderIds, aiFoldersById, lang]);
+  const activeTabs = isAiList ? aiFolderTabs : folderTabs;
 
   const allChatsFolderIndex = displayedFolders?.findIndex((folder) => folder.id === ALL_FOLDER_ID);
-  const isInAllChatsFolder = allChatsFolderIndex === activeChatFolder;
-  const isInFirstFolder = FIRST_FOLDER_INDEX === activeChatFolder;
+  const isInAllChatsFolder = allChatsFolderIndex === currentFolderIndex;
+  const isInFirstFolder = FIRST_FOLDER_INDEX === currentFolderIndex;
+
+  const setActiveFolder = useLastCallback((index: number, forceOnHeavyAnimation = false) => {
+    if (isPaseoWorkbench) {
+      setActivePaseoFolder({ activePaseoFolder: index });
+    } else if (forceOnHeavyAnimation) {
+      setActiveChatFolder({ activeChatFolder: index }, { forceOnHeavyAnimation: true });
+    } else {
+      setActiveChatFolder({ activeChatFolder: index });
+    }
+  });
 
   const openFolder = useLastCallback((index: number) => {
-    if (activeChatFolder === index) return;
+    if (activeFolderIndex === index) return;
 
-    setActiveChatFolder({ activeChatFolder: index }, { forceOnHeavyAnimation: true });
+    if (isAiList) {
+      setActiveAiFolderIndex(index);
+      return;
+    }
+
+    setActiveFolder(index, true);
   });
 
   const handleSwitchTab = useLastCallback((index: number) => {
-    if (activeChatFolder === index) {
+    if (activeFolderIndex === index) {
       scrollToTop();
       return;
     }
@@ -146,17 +218,21 @@ const ChatFolders = ({
 
   // Prevent `activeTab` pointing at non-existing folder after update
   useEffect(() => {
-    if (!folderTabs?.length) {
+    if (!activeTabs?.length) {
       return;
     }
 
-    if (activeChatFolder >= folderTabs.length) {
-      setActiveChatFolder({ activeChatFolder: FIRST_FOLDER_INDEX });
+    if (activeFolderIndex >= activeTabs.length) {
+      if (isAiList) {
+        setActiveAiFolderIndex(FIRST_FOLDER_INDEX);
+      } else {
+        setActiveFolder(FIRST_FOLDER_INDEX);
+      }
     }
-  }, [activeChatFolder, folderTabs, setActiveChatFolder]);
+  }, [activeFolderIndex, activeTabs, isAiList, setActiveFolder]);
 
   useEffect(() => {
-    if (!IS_TOUCH_ENV || !folderTabs?.length || isForumPanelOpen) {
+    if (isAiList || !IS_TOUCH_ENV || !folderTabs?.length || isForumPanelOpen) {
       return undefined;
     }
 
@@ -164,37 +240,34 @@ const ChatFolders = ({
       selectorToPreventScroll: '.chat-list',
       onSwipe: (e, direction) => {
         if (direction === SwipeDirection.Left) {
-          setActiveChatFolder(
-            { activeChatFolder: Math.min(activeChatFolder + 1, folderTabs.length - 1) },
-            { forceOnHeavyAnimation: true },
-          );
+          setActiveFolder(Math.min(currentFolderIndex + 1, folderTabs.length - 1), true);
           return true;
         } else if (direction === SwipeDirection.Right) {
-          setActiveChatFolder({ activeChatFolder: Math.max(0, activeChatFolder - 1) }, { forceOnHeavyAnimation: true });
+          setActiveFolder(Math.max(0, currentFolderIndex - 1), true);
           return true;
         }
 
         return false;
       },
     });
-  }, [activeChatFolder, folderTabs, isForumPanelOpen, setActiveChatFolder]);
+  }, [currentFolderIndex, folderTabs, isAiList, isForumPanelOpen, isPaseoWorkbench, setActiveFolder]);
 
   const isNotInFirstFolderRef = useRef();
-  isNotInFirstFolderRef.current = !isInFirstFolder;
+  isNotInFirstFolderRef.current = !isAiList && !isInFirstFolder;
   useEffect(() => (isNotInFirstFolderRef.current ? captureEscKeyListener(() => {
     if (isNotInFirstFolderRef.current) {
-      setActiveChatFolder({ activeChatFolder: FIRST_FOLDER_INDEX });
+      setActiveFolder(FIRST_FOLDER_INDEX);
     }
-  }) : undefined), [activeChatFolder, setActiveChatFolder]);
+  }) : undefined), [currentFolderIndex, isAiList, setActiveFolder]);
 
   useHistoryBack({
-    isActive: !isInFirstFolder,
-    onBack: () => setActiveChatFolder({ activeChatFolder: FIRST_FOLDER_INDEX }, { forceOnHeavyAnimation: true }),
+    isActive: !isAiList && !isInFirstFolder,
+    onBack: () => setActiveFolder(FIRST_FOLDER_INDEX, true),
   });
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && e.code.startsWith('Digit') && folderTabs) {
+      if (!isAiList && !isPaseoWorkbench && e.ctrlKey && e.shiftKey && e.code.startsWith('Digit') && folderTabs) {
         const [, digit] = e.code.match(/Digit(\d)/) || [];
         if (!digit) return;
 
@@ -206,7 +279,7 @@ const ChatFolders = ({
         const folder = Number(digit) - 1;
         if (folder > folderTabs.length - 1) return;
 
-        setActiveChatFolder({ activeChatFolder: folder }, { forceOnHeavyAnimation: true });
+        setActiveFolder(folder, true);
         e.preventDefault();
       }
     };
@@ -216,20 +289,42 @@ const ChatFolders = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
     };
-  }, [currentUserId, folderTabs, openChat, setActiveChatFolder]);
+  }, [currentUserId, folderTabs, isAiList, isPaseoWorkbench, openChat, setActiveFolder]);
 
   const {
     ref: placeholderRef,
     shouldRender: shouldRenderPlaceholder,
   } = useShowTransition({
-    isOpen: !orderedFolderIds && !isFoldersSidebarShown,
+    isOpen: !isAiList && !(isPaseoWorkbench ? paseoOrderedFolderIds : orderedFolderIds)
+      && !isFoldersSidebarShown,
     noMountTransition: true,
     withShouldRender: true,
   });
 
   function renderCurrentTab(isActive: boolean) {
+    if (isAiList || isPaseoWorkbench) {
+      const activeFolder = displayedFolders?.[currentFolderIndex];
+      const aiFolderId = activeAiFolderIndex > 1 ? aiFolderTabs[activeAiFolderIndex]?.id : undefined;
+      return (
+        <ChatList
+          folderType="agent"
+          folderId={isPaseoWorkbench && activeFolder?.id !== ALL_FOLDER_ID ? activeFolder?.id : undefined}
+          isAiList={isAiList}
+          aiFolderKind={isAiList ? (activeAiFolderIndex === 1 ? 'bots' : aiFolderId ? 'custom' : 'all') : undefined}
+          aiFolderId={aiFolderId}
+          isActive={isActive}
+          isForumPanelOpen={isForumPanelOpen}
+          foldersDispatch={foldersDispatch}
+          isMainList
+          isFoldersSidebarShown={isFoldersSidebarShown}
+          withTags
+          onScroll={handleScroll}
+        />
+      );
+    }
+
     const activeFolder = Object.values(chatFoldersById)
-      .find(({ id }) => id === folderTabs![activeChatFolder].id);
+      .find(({ id }) => id === folderTabs?.[currentFolderIndex]?.id);
     const isFolder = activeFolder && !isInAllChatsFolder;
 
     return (
@@ -250,7 +345,9 @@ const ChatFolders = ({
     );
   }
 
-  const hasFolders = folderTabs && folderTabs.length > 1;
+  const hasFolders = isAiList
+    ? aiFolderTabs.length > 0
+    : folderTabs && (isPaseoWorkbench ? folderTabs.length > 0 : folderTabs.length > 1);
   const shouldRenderFolders = hasFolders && !isFoldersSidebarShown;
 
   return (
@@ -258,11 +355,11 @@ const ChatFolders = ({
       ref={ref}
       className={buildClassName(
         'ChatFolders',
-        shouldRenderStoryRibbon && 'with-story-ribbon',
+        shouldRenderStoryRibbon && !isAiList && !isPaseoWorkbench && 'with-story-ribbon',
         isFoldersSidebarShown && 'ChatFolders--tabs-sidebar-shown',
       )}
     >
-      {shouldRenderStoryRibbon && <StoryRibbon isClosing={isStoryRibbonClosing} />}
+      {shouldRenderStoryRibbon && !isAiList && !isPaseoWorkbench && <StoryRibbon isClosing={isStoryRibbonClosing} />}
       <div className={buildClassName(
         'ChatFolders-content',
         shouldRenderFolders && 'with-tabs',
@@ -271,8 +368,8 @@ const ChatFolders = ({
       >
         {shouldRenderFolders ? (
           <ChatFolderTabList
-            tabs={folderTabs}
-            activeTab={activeChatFolder}
+            tabs={activeTabs!}
+            activeTab={activeFolderIndex}
             onSwitchTab={handleSwitchTab}
             onFileHoverOpen={openFolder}
           />
@@ -282,8 +379,8 @@ const ChatFolders = ({
         <Transition
           ref={transitionRef}
           name={resolveTransitionName('slideOptimized', animationLevel, shouldSkipHistoryAnimations, lang.isRtl)}
-          activeKey={activeChatFolder}
-          renderCount={hasFolders ? folderTabs.length : undefined}
+          activeKey={activeFolderIndex}
+          renderCount={hasFolders ? activeTabs?.length : undefined}
         >
           {renderCurrentTab}
         </Transition>
@@ -332,6 +429,7 @@ export default memo(withGlobal<OwnProps>(
       maxChatLists: selectCurrentLimit(global, 'chatlistJoined'),
       archiveSettings,
       isStoryRibbonShown,
+      aiConversationFolders: global.aiConversationFolders,
     };
   },
 )(ChatFolders));

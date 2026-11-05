@@ -1,3 +1,5 @@
+import { generateRandomBigInt } from '../../../lib/gramjs/Helpers';
+
 import type {
   ApiChat, ApiChatFolder, ApiChatFullInfo, ApiChatlistExportedInvite,
   ApiChatMember, ApiDraft, ApiError, ApiMissingInvitedUser,
@@ -20,14 +22,19 @@ import {
 } from '../../../types';
 
 import {
+  AGENT_BOT_LIST_FOLDER_ID,
+  AGENT_CREATION_FOLDER_ID,
+  AGENT_FOLDER_ID,
   ALL_FOLDER_ID,
   ARCHIVED_FOLDER_ID,
   CHAT_LIST_LOAD_SLICE,
   DEBUG,
   GLOBAL_SUGGESTED_CHANNELS_ID,
+  HERMES_AGENT_BOT_CREATION_FOLDER_ID,
   RE_TG_LINK,
   SAVED_FOLDER_ID,
   SERVICE_NOTIFICATIONS_USER_ID,
+  SYSTEM_PRESET_AGENT_FOLDER_ID,
   TME_WEB_DOMAINS,
   TMP_CHAT_ID,
   TOP_CHAT_MESSAGES_PRELOAD_LIMIT,
@@ -49,6 +56,9 @@ import { extractCurrentThemeParams } from '../../../util/themeStyle';
 import { callApi } from '../../../api/gramjs';
 import {
   getIsSavedDialog,
+  getMainUsername,
+  getStartedAgentChatIds,
+  isAgentConversation,
   isChatArchived,
   isChatBasicGroup,
   isChatChannel,
@@ -159,6 +169,116 @@ const CHATLIST_LIMIT_ERROR_LIST = new Set([
 
 const runThrottledForLoadTopChats = throttle((cb) => cb(), 3000, true);
 const runDebouncedForLoadFullChat = debounce((cb) => cb(), 500, false, true);
+
+function isRetryableAgentCreationError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (typeof code === 'number' && code >= 500 && code < 600) return true;
+
+  return typeof message === 'string' && /failed to fetch|network error/i.test(message);
+}
+
+function isAgentCreationLimitError(error: unknown) {
+  if (!error || typeof error !== 'object') return false;
+
+  return (error as { message?: unknown }).message === 'BOT_CREATE_LIMIT_EXCEEDED';
+}
+
+async function createAgentChat(
+  global: GlobalState,
+  actions: RequiredGlobalActions,
+  creationFolderId: number,
+  isHermesAgentBot = false,
+): Promise<void> {
+  const tabId = getCurrentTabId();
+  if (selectIsCurrentUserFrozen(global)) {
+    actions.openFrozenAccountModal({ tabId });
+    return;
+  }
+
+  const requestHash = generateRandomBigInt() || 1n;
+  let result: Awaited<ReturnType<typeof callApi<'fetchChats'>>> | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      result = await callApi('fetchChats', {
+        limit: 1,
+        folderId: creationFolderId,
+        hash: requestHash,
+      });
+      if (result || attempt > 0) break;
+    } catch (error) {
+      if (isAgentCreationLimitError(error)) {
+        actions.showNotification({ message: { key: 'AgentCreationLimitExceeded' }, tabId });
+        return;
+      }
+
+      if (attempt > 0 || !isRetryableAgentCreationError(error)) {
+        actions.showNotification({ message: { key: 'AgentCreationFailed' }, tabId });
+        return;
+      }
+    }
+
+    await pause(250);
+  }
+  if (!result) {
+    actions.showNotification({ message: { key: 'AgentCreationFailed' }, tabId });
+    return;
+  }
+
+  const agentChats = result.chats.map((chat) => ({
+    ...chat,
+    folderId: AGENT_FOLDER_ID,
+    isAgent: true as const,
+    isHermesAgentBot: isHermesAgentBot ? true as const : undefined,
+  }));
+  const agentChat = agentChats.find(({ id }) => result.chatIds.includes(id)) || agentChats[0];
+  if (!agentChat) {
+    actions.showNotification({ message: { key: 'AgentCreationFailed' }, tabId });
+    return;
+  }
+  const { id: agentChatId } = agentChat;
+
+  global = getGlobal();
+  const globalBeforeLoad = global;
+  global = batchMessageStoreUpdates(global, (chunkGlobal) => {
+    chunkGlobal = updateUsers(chunkGlobal, buildCollectionByKey(result.users, 'id'));
+    chunkGlobal = updateChats(chunkGlobal, buildCollectionByKey(agentChats, 'id'));
+    chunkGlobal = addUserStatuses(chunkGlobal, result.userStatusesById);
+    chunkGlobal = addNotifyExceptions(chunkGlobal, result.notifyExceptionById);
+    chunkGlobal = addMessages(chunkGlobal, result.messages);
+    chunkGlobal = updateChatsLastMessageId(chunkGlobal, result.lastMessageByChatId);
+    chunkGlobal = updateMainThreadReadStates(chunkGlobal, result.threadReadStatesById || {});
+
+    result.threadInfos.forEach((threadInfo) => {
+      chunkGlobal = updateThreadInfo(chunkGlobal, threadInfo);
+    });
+
+    agentChats.forEach(({ id }) => {
+      const draft = result.draftsById[id];
+      if (!draft) return;
+
+      const initialDraft = selectDraft(globalBeforeLoad, id, MAIN_THREAD_ID);
+      const currentDraft = selectDraft(chunkGlobal, id, MAIN_THREAD_ID);
+      if (currentDraft?.isLocal || shouldKeepCurrentDraft(currentDraft, initialDraft, draft)) return;
+
+      chunkGlobal = replaceThreadLocalStateParam(chunkGlobal, id, MAIN_THREAD_ID, 'draft', draft);
+    });
+
+    return chunkGlobal;
+  });
+
+  setGlobal(global);
+  actions.openChat({ id: agentChatId, tabId });
+}
+
+addActionHandler('createNewAgentChat', (global, actions): Promise<void> => (
+  createAgentChat(global, actions, AGENT_CREATION_FOLDER_ID)
+));
+
+addActionHandler('createNewHermesAgentBotChat', (global, actions): Promise<void> => (
+  createAgentChat(global, actions, HERMES_AGENT_BOT_CREATION_FOLDER_ID, true)
+));
 
 addActionHandler('preloadTopChatMessages', async (global, actions): Promise<void> => {
   const preloadedChatIds = new Set<string>();
@@ -3718,6 +3838,149 @@ addActionHandler('loadDiscussion', async (global, actions, payload): Promise<voi
   setGlobal(global);
 });
 
+async function loadAgentChats() {
+  const global = getGlobal();
+  const [firstPage, agentBotPage] = await Promise.all([
+    callApi('fetchChats', {
+      limit: CHAT_LIST_LOAD_SLICE,
+      folderId: AGENT_FOLDER_ID,
+    }),
+    callApi('fetchChats', {
+      limit: CHAT_LIST_LOAD_SLICE,
+      folderId: AGENT_BOT_LIST_FOLDER_ID,
+    }).catch(() => undefined),
+  ]);
+  if (!firstPage) return undefined;
+  let page = firstPage;
+  const systemPresetAgentChatIds = new Set(
+    (agentBotPage?.chats || [])
+      .filter((chat) => chat.folderId === SYSTEM_PRESET_AGENT_FOLDER_ID)
+      .map(({ id }) => id),
+  );
+  const activeAgentBotChatIds = new Set(
+    [
+      ...getStartedAgentChatIds(agentBotPage?.chatIds || [], agentBotPage?.lastMessageByChatId || {}),
+      ...systemPresetAgentChatIds,
+    ],
+  );
+  const hermesAgentBotUsernames = new Set(
+    global.appConfig.hermesAgentBotUsernames?.map((username) => username.toLowerCase()),
+  );
+  const hermesAgentBotUserIds = new Set(
+    (agentBotPage?.users || [])
+      .filter((user) => {
+        const username = getMainUsername(user)?.toLowerCase();
+        return Boolean(username && hermesAgentBotUsernames.has(username));
+      })
+      .map(({ id }) => id),
+  );
+  const activeHermesAgentBotChatIds = new Set(
+    [...activeAgentBotChatIds].filter((id) => (
+      hermesAgentBotUserIds.has(id) || systemPresetAgentChatIds.has(id)
+    )),
+  );
+
+  const startedAgentChatIds = new Set(getStartedAgentChatIds(page.chatIds, page.lastMessageByChatId));
+  const loadedChatIds = new Set(startedAgentChatIds);
+  const loadedChatIdsInOrder = [...startedAgentChatIds];
+  const loadedChats = page.chats
+    .filter(({ id }) => startedAgentChatIds.has(id))
+    .map((chat) => (activeHermesAgentBotChatIds.has(chat.id)
+      ? { ...chat, isHermesAgentBot: true as const }
+      : chat));
+  const loadedChatById = new Set(loadedChats.map(({ id }) => id));
+  const loadedUsers = [...page.users];
+  const loadedUserStatusesById = { ...page.userStatusesById };
+  const loadedDraftsById = { ...page.draftsById };
+  const loadedThreadReadStatesById = { ...page.threadReadStatesById };
+  const loadedThreadInfos = [...page.threadInfos];
+  const loadedMessages = [...page.messages];
+  const loadedNotifyExceptionById = { ...page.notifyExceptionById };
+  const loadedLastMessageByChatId = { ...page.lastMessageByChatId };
+  if (agentBotPage) {
+    const additionalAgentBotChatIds = [...activeAgentBotChatIds].filter((id) => !loadedChatIds.has(id));
+    additionalAgentBotChatIds.forEach((id) => {
+      if (loadedChatIds.has(id)) return;
+      loadedChatIds.add(id);
+      loadedChatIdsInOrder.push(id);
+    });
+    agentBotPage.chats.forEach((chat) => {
+      if (!activeAgentBotChatIds.has(chat.id) || loadedChatById.has(chat.id)) return;
+      loadedChatById.add(chat.id);
+      loadedChats.push(activeHermesAgentBotChatIds.has(chat.id)
+        ? { ...chat, isHermesAgentBot: true }
+        : chat);
+    });
+    loadedUsers.push(...agentBotPage.users);
+    Object.assign(loadedUserStatusesById, agentBotPage.userStatusesById);
+    Object.assign(loadedDraftsById, agentBotPage.draftsById);
+    Object.assign(loadedThreadReadStatesById, agentBotPage.threadReadStatesById || {});
+    loadedThreadInfos.push(...agentBotPage.threadInfos);
+    loadedMessages.push(...agentBotPage.messages);
+    Object.assign(loadedNotifyExceptionById, agentBotPage.notifyExceptionById);
+    Object.assign(loadedLastMessageByChatId, agentBotPage.lastMessageByChatId);
+  }
+  const seenOffsets = new Set<string>();
+
+  while (page.nextOffsetDate !== undefined && page.nextOffsetId !== undefined && page.nextOffsetPeerId) {
+    const offsetKey = `${page.nextOffsetDate}:${page.nextOffsetPeerId}:${page.nextOffsetId}`;
+    if (seenOffsets.has(offsetKey)) break;
+    seenOffsets.add(offsetKey);
+
+    const offsetPeer = page.chats.find(({ id }) => id === page.nextOffsetPeerId);
+    if (!offsetPeer) break;
+
+    const nextPage = await callApi('fetchChats', {
+      limit: CHAT_LIST_LOAD_SLICE,
+      offsetDate: page.nextOffsetDate,
+      offsetPeer,
+      offsetId: page.nextOffsetId,
+      folderId: AGENT_FOLDER_ID,
+    });
+    if (!nextPage) break;
+    page = nextPage;
+
+    const startedPageChatIds = new Set(getStartedAgentChatIds(page.chatIds, page.lastMessageByChatId));
+    startedPageChatIds.forEach((id) => {
+      if (loadedChatIds.has(id)) return;
+      loadedChatIds.add(id);
+      loadedChatIdsInOrder.push(id);
+    });
+    page.chats.forEach((chat) => {
+      if (!startedPageChatIds.has(chat.id)) return;
+      if (loadedChatById.has(chat.id)) return;
+      loadedChatById.add(chat.id);
+      loadedChats.push(activeHermesAgentBotChatIds.has(chat.id)
+        ? { ...chat, isHermesAgentBot: true }
+        : chat);
+    });
+    loadedUsers.push(...page.users);
+    Object.assign(loadedUserStatusesById, page.userStatusesById);
+    Object.assign(loadedDraftsById, page.draftsById);
+    Object.assign(loadedThreadReadStatesById, page.threadReadStatesById || {});
+    loadedThreadInfos.push(...page.threadInfos);
+    loadedMessages.push(...page.messages);
+    Object.assign(loadedNotifyExceptionById, page.notifyExceptionById);
+    Object.assign(loadedLastMessageByChatId, page.lastMessageByChatId);
+  }
+
+  return {
+    ...page,
+    totalChatCount: loadedChatIds.size,
+    isFullyLoaded: page.isFullyLoaded && (!agentBotPage || agentBotPage.isFullyLoaded),
+    chatIds: loadedChatIdsInOrder,
+    chats: loadedChats,
+    users: loadedUsers,
+    userStatusesById: loadedUserStatusesById,
+    draftsById: loadedDraftsById,
+    threadReadStatesById: loadedThreadReadStatesById,
+    threadInfos: loadedThreadInfos,
+    messages: loadedMessages,
+    notifyExceptionById: loadedNotifyExceptionById,
+    lastMessageByChatId: loadedLastMessageByChatId,
+  };
+}
+
 async function loadChats(
   listType: ChatListType,
   isFullDraftSync?: boolean,
@@ -3740,14 +4003,14 @@ async function loadChats(
   const currentUser = selectUser(global, global.currentUserId!);
   if (listType === 'saved' && !currentUser) return;
 
-  const result = listType === 'saved' ? await callApi('fetchSavedChats', {
+  const resultPromise = listType === 'saved' ? callApi('fetchSavedChats', {
     parentPeer: currentUser!,
     limit: CHAT_LIST_LOAD_SLICE,
     offsetDate,
     offsetId,
     offsetPeer,
     withPinned: isFirstBatch && !isAccountFreeze,
-  }) : await callApi('fetchChats', {
+  }) : callApi('fetchChats', {
     limit: CHAT_LIST_LOAD_SLICE,
     offsetDate,
     offsetId,
@@ -3756,19 +4019,48 @@ async function loadChats(
     withPinned: isFirstBatch && !isAccountFreeze,
     lastLocalServiceMessageId,
   });
+  const agentResultPromise = listType === 'active' && isFirstBatch
+    ? loadAgentChats().catch(() => undefined)
+    : Promise.resolve(undefined);
+  const [result, agentResult] = await Promise.all([resultPromise, agentResultPromise]);
 
   if (!result) {
     return;
   }
 
-  const { chatIds } = result;
-
   global = getGlobal();
+  const additionalAgentChatIds = agentResult?.chatIds.filter((id) => !result.chatIds.includes(id)) || [];
+  const agentChatIds = unique([
+    ...additionalAgentChatIds,
+    ...(!agentResult
+      ? (global.chats.listIds.active || []).filter((id) => isAgentConversation(selectChat(global, id)))
+      : []),
+  ].filter((id) => !result.chatIds.includes(id)));
+  const agentChats = agentResult?.chats.map((chat) => {
+    const isSystemPresetAgent = chat.folderId === SYSTEM_PRESET_AGENT_FOLDER_ID || chat.isSystemPresetAgent;
+    return {
+      ...chat,
+      folderId: isSystemPresetAgent ? SYSTEM_PRESET_AGENT_FOLDER_ID : AGENT_FOLDER_ID,
+      ...(isSystemPresetAgent && { isSystemPresetAgent: true as const }),
+      isAgent: true as const,
+    };
+  }) || [];
+  const chatIds = unique([...agentChatIds, ...result.chatIds]);
+  const chats = result.chats.concat(agentChats);
+  const users = result.users.concat(agentResult?.users || []);
+  const userStatusesById = { ...agentResult?.userStatusesById, ...result.userStatusesById };
+  const draftsById = { ...agentResult?.draftsById, ...result.draftsById };
+  const threadReadStatesById = { ...agentResult?.threadReadStatesById, ...result.threadReadStatesById };
+  const threadInfos = (agentResult?.threadInfos || []).concat(result.threadInfos);
+  const messages = (agentResult?.messages || []).concat(result.messages);
+  const notifyExceptionById = { ...agentResult?.notifyExceptionById, ...result.notifyExceptionById };
+  const lastMessageByChatId = { ...agentResult?.lastMessageByChatId, ...result.lastMessageByChatId };
+  const totalChatCount = result.totalChatCount + (agentResult ? additionalAgentChatIds.length : 0);
 
   global = batchMessageStoreUpdates(global, (chunkGlobal) => {
-    const newChats = buildCollectionByKey(result.chats, 'id');
+    const newChats = buildCollectionByKey(chats, 'id');
 
-    chunkGlobal = updateUsers(chunkGlobal, buildCollectionByKey(result.users, 'id'));
+    chunkGlobal = updateUsers(chunkGlobal, buildCollectionByKey(users, 'id'));
     chunkGlobal = updateChats(chunkGlobal, newChats);
     if (isFirstBatch) {
       chunkGlobal = replaceChatListIds(chunkGlobal, listType, chatIds);
@@ -3777,15 +4069,28 @@ async function loadChats(
     }
 
     if (shouldReplaceStaleState) {
-      chunkGlobal = replaceUserStatuses(chunkGlobal, result.userStatusesById);
-      chunkGlobal = replaceNotifyExceptions(chunkGlobal, result.notifyExceptionById);
+      chunkGlobal = replaceUserStatuses(chunkGlobal, userStatusesById);
+      chunkGlobal = replaceNotifyExceptions(chunkGlobal, notifyExceptionById);
     } else {
-      chunkGlobal = addUserStatuses(chunkGlobal, result.userStatusesById);
-      chunkGlobal = addNotifyExceptions(chunkGlobal, result.notifyExceptionById);
+      chunkGlobal = addUserStatuses(chunkGlobal, userStatusesById);
+      chunkGlobal = addNotifyExceptions(chunkGlobal, notifyExceptionById);
     }
 
-    chunkGlobal = updateChatListSecondaryInfo(chunkGlobal, listType, result);
-    chunkGlobal = updateChatsLastMessageId(chunkGlobal, result.lastMessageByChatId, listType);
+    chunkGlobal = updateChatListSecondaryInfo(chunkGlobal, listType, {
+      orderedPinnedIds: result.orderedPinnedIds,
+      totalChatCount,
+    });
+    chunkGlobal = updateChatsLastMessageId(chunkGlobal, lastMessageByChatId, listType);
+
+    if (agentResult && !isFullDraftSync) {
+      agentResult.threadInfos.forEach((threadInfo) => {
+        chunkGlobal = updateThreadInfo(chunkGlobal, threadInfo);
+      });
+      chunkGlobal = updateMainThreadReadStates(
+        chunkGlobal,
+        agentResult.threadReadStatesById || {},
+      );
+    }
 
     if (!shouldIgnorePagination) {
       chunkGlobal = replaceChatListLoadingParameters(
@@ -3794,19 +4099,19 @@ async function loadChats(
     }
 
     if (isFullDraftSync) {
-      result.threadInfos.forEach((threadInfo) => {
+      threadInfos.forEach((threadInfo) => {
         chunkGlobal = updateThreadInfo(chunkGlobal, threadInfo);
       });
-      if (result.threadReadStatesById) {
-        chunkGlobal = updateMainThreadReadStates(chunkGlobal, result.threadReadStatesById);
+      if (threadReadStatesById) {
+        chunkGlobal = updateMainThreadReadStates(chunkGlobal, threadReadStatesById);
       }
     }
 
     if (listType === 'active' || listType === 'archived') {
-      const idsToUpdateDraft = isFullDraftSync ? result.chatIds : Object.keys(result.draftsById);
+      const idsToUpdateDraft = isFullDraftSync ? chatIds : Object.keys(draftsById);
 
       idsToUpdateDraft.forEach((chatId) => {
-        const draft = result.draftsById[chatId];
+        const draft = draftsById[chatId];
         const thread = selectThread(chunkGlobal, chatId, MAIN_THREAD_ID);
         if (!isFullDraftSync && !draft && !thread) return;
 
@@ -3821,8 +4126,10 @@ async function loadChats(
       });
     }
 
+    const isAgentListFullyLoaded = !agentResult || agentResult.isFullyLoaded;
     if (
-      (result.isFullyLoaded || chatIds.length === 0 || chatIds.length === result.totalChatCount)
+      (isAgentListFullyLoaded && (result.isFullyLoaded || result.chatIds.length === 0
+        || result.chatIds.length === result.totalChatCount))
       && !chunkGlobal.chats.isFullyLoaded[listType]
     ) {
       chunkGlobal = {
@@ -3843,7 +4150,7 @@ async function loadChats(
   setGlobal(global);
 
   return {
-    messages: result.messages,
+    messages,
   };
 }
 

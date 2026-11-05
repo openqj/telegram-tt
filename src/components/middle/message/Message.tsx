@@ -62,6 +62,7 @@ import {
   getMessageWebPage,
   hasMessageText,
   hasMessageTtl,
+  isAgentConversation,
   isAnonymousForwardsChat,
   isAnonymousOwnMessage,
   isChatChannel,
@@ -87,6 +88,7 @@ import {
   selectChat,
   selectChatFullInfo,
   selectChatMessage,
+  selectChatMessages,
   selectChatTranslations,
   selectCurrentMiddleSearch,
   selectDefaultReaction,
@@ -141,6 +143,9 @@ import { parseTranslationCacheKey } from '../../../util/keys/translationKey';
 import { getServerTime } from '../../../util/serverTime';
 import stopEvent from '../../../util/stopEvent';
 import { isElementInViewport } from '../../../util/visibility/isElementInViewport';
+import {
+  getAgentTaskControl, hasAgentTaskControlButtons, shouldShowAgentTaskInlineButtons,
+} from '../../common/helpers/agentActivity';
 import { getStickerDimensions, REM } from '../../common/helpers/mediaDimensions';
 import renderText from '../../common/helpers/renderText';
 import { getCustomEmojiSize } from '../composer/helpers/customEmoji';
@@ -330,6 +335,8 @@ type StateProps = {
   webPageStory?: ApiTypeStory;
   isConnected: boolean;
   isLoadingComments?: boolean;
+  isAgentTaskControlActive?: boolean;
+  isAgentTaskControlRunning?: boolean;
   shouldWarnAboutFiles?: boolean;
   senderBoosts?: number;
   tags?: Record<ApiReactionKey, ApiSavedReactionTag>;
@@ -406,6 +413,8 @@ const Message = ({
   uploadProgress,
   isInDocumentGroup,
   isLoadingComments,
+  isAgentTaskControlActive,
+  isAgentTaskControlRunning,
   isProtected,
   canForward,
   isFocused,
@@ -2048,7 +2057,10 @@ const Message = ({
           {withAppendix && <MessageAppendix isOwn={isOwn} />}
           {withQuickReactionButton && quickReactionPosition === 'in-content' && renderQuickReactionButton()}
         </div>
-        {message.inlineButtons && (
+        {message.inlineButtons && shouldShowAgentTaskInlineButtons(
+          isAgentTaskControlActive,
+          isAgentTaskControlRunning,
+        ) && (
           <InlineButtons
             inlineButtons={message.inlineButtons}
             isReceipt={Boolean(invoice?.receiptMessageId)}
@@ -2140,6 +2152,8 @@ export default memo(withGlobal<OwnProps>(
     const isChatWithUser = isUserId(chatId);
 
     const chat = selectChat(global, chatId);
+    const isAgentTaskMessage = Boolean(chat && isAgentConversation(chat) && hasAgentTaskControlButtons(message));
+    const agentTaskControl = isAgentTaskMessage ? getAgentTaskControl(selectChatMessages(global, chatId)) : undefined;
     const isChatWithSelf = selectIsChatWithSelf(global, chatId);
     const isChatWithBot = selectIsChatWithBot(global, chatId);
     const isSystemBotChat = isSystemBot(chatId);
@@ -2365,6 +2379,10 @@ export default memo(withGlobal<OwnProps>(
       isLoadingComments: repliesThreadInfo?.isCommentsInfo
         && loadingThread?.loadingChatId === repliesThreadInfo?.originChannelId
         && loadingThread?.loadingMessageId === repliesThreadInfo?.originMessageId,
+      isAgentTaskControlActive: isAgentTaskMessage ? agentTaskControl?.messageId === message.id : undefined,
+      isAgentTaskControlRunning: isAgentTaskMessage
+        && agentTaskControl?.messageId === message.id
+        && agentTaskControl.action === 'pause',
       shouldWarnAboutFiles,
       outgoingStatus: isOutgoing
         ? message.isEphemeral

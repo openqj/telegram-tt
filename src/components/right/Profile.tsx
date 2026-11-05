@@ -3,6 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState } from '@teact';
 import { getActions, getGlobal, withGlobal } from '../../global';
 
 import type {
+  ApiAgentTaskPage,
   ApiBotPreviewMedia,
   ApiChat,
   ApiChatFullInfo,
@@ -34,6 +35,7 @@ import {
   getIsSavedDialog,
   getMessageDocument,
   getMessageHtmlId,
+  isAgentConversation,
   isChatChannel,
   isChatGroup,
   isUserBot,
@@ -68,6 +70,7 @@ import { selectMessageDownloadableMedia } from '../../global/selectors/media';
 import { selectActiveGiftsCollectionId } from '../../global/selectors/payments';
 import { selectSharedSettings } from '../../global/selectors/sharedState';
 import { selectActiveStoriesCollectionId } from '../../global/selectors/stories';
+import { fetchAgentTasks } from '../../util/agentComposerConfig';
 import {
   VTT_PROFILE_GIFTS,
   VTT_RIGHT_PROFILE_COLLAPSE,
@@ -77,9 +80,10 @@ import { areDeepEqual } from '../../util/areDeepEqual';
 import { IS_TOUCH_ENV } from '../../util/browser/windowEnvironment';
 import buildClassName from '../../util/buildClassName';
 import { captureEvents, SwipeDirection } from '../../util/captureEvents';
-import { isUserId } from '../../util/entities/ids';
+import { getRawPeerId, isUserId } from '../../util/entities/ids';
 import { getGridCornerClassName } from '../../util/gridCorners';
 import { buildCollectionByKey } from '../../util/iteratees.ts';
+import { formatDateTime, formatMessageListDate, secondsToDate } from '../../util/localization/dateFormat';
 import { resolveTransitionName } from '../../util/resolveTransitionName.ts';
 import { LOCAL_TGS_URLS } from '../common/helpers/animatedAssets';
 import renderText from '../common/helpers/renderText';
@@ -149,6 +153,7 @@ type StateProps = {
   theme: ThemeKey;
   isChannel?: boolean;
   isBot?: boolean;
+  isAgentChat?: boolean;
   currentUserId?: string;
   messagesById?: Record<number, ApiMessage>;
   foundIds?: number[];
@@ -216,6 +221,21 @@ const TABS: LocalTabProps[] = [
   { type: 'gif', key: 'ProfileTabGifs' },
 ];
 
+type AgentActivityStatus = 'inProgress' | 'completed' | 'failed';
+
+type AgentActivityItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  date: number;
+  status: AgentActivityStatus;
+};
+
+type AgentActivityGroup = {
+  title: string;
+  items: AgentActivityItem[];
+};
+
 const CONTENT_PANEL_SHOW_DELAY = 300;
 const HIDDEN_RENDER_DELAY = 1000;
 const INTERSECTION_THROTTLE = 500;
@@ -233,7 +253,7 @@ const SHARED_MEDIA_TYPES = new Set<StringAutocomplete<SharedMediaType>>([
   'media', 'documents', 'links', 'audio', 'voice', 'gif', 'polls',
 ]);
 const NON_ISLAND_TABS = new Set<ProfileTabType>([
-  'media', 'gif', 'stories', 'storiesArchive', 'previewMedia', 'gifts', 'polls',
+  'media', 'gif', 'stories', 'storiesArchive', 'previewMedia', 'gifts', 'polls', 'agentActivity',
 ]);
 const MESSAGE_BASED_TABS = new Set<ProfileTabType>([
   'media', 'gif', 'documents', 'links', 'audio', 'voice', 'polls',
@@ -259,6 +279,7 @@ const CONTENT_LIST_CLASS: Record<string, string> = {
   commonChats: styles.commonChatsList,
   similarChannels: styles.similarChannelsList,
   similarBots: styles.similarBotsList,
+  agentActivity: styles.agentActivityList,
 };
 
 const Profile = ({
@@ -273,6 +294,7 @@ const Profile = ({
   linkedCommunityChatsCount,
   isChannel,
   isBot,
+  isAgentChat,
   currentUserId,
   messagesById,
   foundIds,
@@ -442,6 +464,10 @@ const Profile = ({
       }
     }
 
+    if (isAgentChat && !isOwnProfile) {
+      arr.unshift({ type: 'agentActivity', key: 'ProfileTabAgentActivity' });
+    }
+
     return arr.map((tab) => {
       const contextActions: MenuItemContextAction[] | undefined = canUpdateMainTab && mainTab !== tab.type
         && validMainTabTypes.has(tab.type) ? [{
@@ -461,7 +487,7 @@ const Profile = ({
   }, [
     isGeneralSavedMessages, hasStoriesTab, hasGiftsTab, hasMembersTab, hasPreviewMediaTab,
     isTopicInfo,
-    hasCommonChatsTab, isChannel, isBot, similarChannels?.length, similarBots?.length, lang, isOwnProfile,
+    hasCommonChatsTab, isChannel, isBot, isAgentChat, similarChannels?.length, similarBots?.length, lang, isOwnProfile,
     mainTab, chatId, canUpdateMainTab, validMainTabTypes,
   ]);
 
@@ -612,6 +638,11 @@ const Profile = ({
   }, [gifts, startViewTransition, isGiftTransitionEnabled]);
 
   const [scrollToTopKey, setScrollToTopKey] = useState(0);
+
+  const [agentActivityPage, setAgentActivityPage] = useState<ApiAgentTaskPage>();
+  const [isAgentActivityLoading, setIsAgentActivityLoading] = useState(false);
+  const [agentActivityLoadFailed, setAgentActivityLoadFailed] = useState(false);
+
   const handleScrollToTop = useLastCallback(() => {
     setScrollToTopKey(scrollToTopKey + 1);
   });
@@ -641,6 +672,73 @@ const Profile = ({
     similarBots,
     scrollToTopKey,
   });
+
+  useEffect(() => {
+    let isRequestActive = true;
+    if (!isAgentChat || resultType !== 'agentActivity' || !isUserId(chatId)) {
+      setAgentActivityPage(undefined);
+      setIsAgentActivityLoading(false);
+      setAgentActivityLoadFailed(false);
+      return () => {
+        isRequestActive = false;
+      };
+    }
+
+    setAgentActivityPage(undefined);
+    setIsAgentActivityLoading(true);
+    setAgentActivityLoadFailed(false);
+    fetchAgentTasks(getRawPeerId(chatId).toString()).then((page) => {
+      if (isRequestActive) setAgentActivityPage(page);
+    }).catch(() => {
+      if (isRequestActive) setAgentActivityLoadFailed(true);
+    }).finally(() => {
+      if (isRequestActive) setIsAgentActivityLoading(false);
+    });
+
+    return () => {
+      isRequestActive = false;
+    };
+  }, [chatId, isAgentChat, resultType]);
+
+  const agentActivityGroups = useMemo(() => {
+    if (!agentActivityPage) return [];
+
+    const tasks = agentActivityPage.tasks.map((task): AgentActivityItem => {
+      const progress = task.progress.toLowerCase();
+      const rawStatus = task.status.toLowerCase();
+      const isCompleted = progress === 'completed' || ['done', 'completed', 'succeeded'].includes(rawStatus);
+      const isFailed = progress === 'failed' || ['failed', 'cancelled', 'canceled'].includes(rawStatus);
+      const status: AgentActivityStatus = isCompleted ? 'completed' : isFailed ? 'failed' : 'inProgress';
+      const statusLabel = status === 'inProgress' ? lang('AgentActivityStatusInProgress')
+        : status === 'completed' ? lang('AgentActivityStatusCompleted') : lang('AgentActivityStatusFailed');
+      const progressLabel = progress === 'queued' ? lang('AgentActivityProgressQueued')
+        : progress === 'waiting_approval' ? lang('AgentActivityProgressWaitingApproval')
+          : progress === 'paused' ? lang('AgentActivityProgressPaused') : undefined;
+      const queuePosition = progress === 'queued' && task.queuePosition > 0
+        ? lang('AgentActivityQueuePosition', { position: task.queuePosition }) : undefined;
+
+      return {
+        id: task.taskId,
+        title: lang('AgentActivityTask', { id: task.taskId.slice(0, 8) }),
+        subtitle: [statusLabel, progressLabel, queuePosition].filter(Boolean).join(' · '),
+        date: task.createdAt,
+        status,
+      };
+    }).sort((a, b) => b.date - a.date || b.id.localeCompare(a.id));
+
+    const groups: AgentActivityGroup[] = [];
+    tasks.forEach((task) => {
+      const title = formatMessageListDate(lang, secondsToDate(task.date));
+      let group = groups[groups.length - 1];
+      if (!group || group.title !== title) {
+        group = { title, items: [] };
+        groups.push(group);
+      }
+      group.items.push(task);
+    });
+
+    return groups;
+  }, [agentActivityPage, lang]);
 
   const shouldWrapInIsland = !NON_ISLAND_TABS.has(resultType);
   const isVirtualized = VIRTUALIZED_TABS.has(resultType);
@@ -924,6 +1022,58 @@ const Profile = ({
   }
 
   function renderContent() {
+    if (resultType === 'agentActivity') {
+      if (isAgentActivityLoading || !canRenderContent) {
+        return (
+          <div className={buildClassName(styles.content, styles.emptyList)}>
+            <Spinner />
+          </div>
+        );
+      }
+
+      if (agentActivityLoadFailed) {
+        return (
+          <div className={buildClassName(styles.content, styles.emptyList)}>
+            <NothingFound text={lang('SomethingWentWrong')} />
+          </div>
+        );
+      }
+
+      if (!agentActivityGroups.length) {
+        return (
+          <div className={buildClassName(styles.content, styles.emptyList)}>
+            <NothingFound text={lang('AgentActivityEmpty')} />
+          </div>
+        );
+      }
+
+      return (
+        <div className={buildClassName(styles.content, styles.agentActivityList)}>
+          {agentActivityGroups.map((group) => (
+            <section key={group.title} className={styles.agentActivityGroup}>
+              <h3 className={styles.agentActivityDate}>{group.title}</h3>
+              {group.items.map((item) => (
+                <ListItem
+                  key={item.id}
+                  icon={item.status === 'completed' ? 'check' : item.status === 'failed' ? 'close' : 'clock'}
+                  iconClassName={styles.agentActivityIcon}
+                  className={styles.agentActivityItem}
+                  multiline
+                  isStatic
+                >
+                  <span className="title" dir="auto">{item.title}</span>
+                  <span className="subtitle" dir="auto">{item.subtitle}</span>
+                  <span className={styles.agentActivityTime}>
+                    {formatDateTime(lang, secondsToDate(item.date), { time: 'short' })}
+                  </span>
+                </ListItem>
+              ))}
+            </section>
+          ))}
+        </div>
+      );
+    }
+
     if (resultType === 'dialogs') {
       return wrapInIsland(
         <ChatList
@@ -1555,6 +1705,7 @@ export default memo(withGlobal<OwnProps>(
       theme: selectTheme(global),
       isChannel,
       isBot,
+      isAgentChat: isAgentConversation(chat),
       messagesById,
       foundIds,
       mediaSearchType,

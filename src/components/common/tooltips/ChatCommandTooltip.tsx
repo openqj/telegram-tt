@@ -3,9 +3,8 @@ import {
 } from '../../../lib/teact/teact';
 import { getGlobal } from '../../../global';
 
-import type {
-  ApiBotCommand, ApiMessage, ApiQuickReply, ApiUser,
-} from '../../../api/types';
+import type { ApiBotCommand, ApiMessage, ApiQuickReply, ApiUser } from '../../../api/types';
+import type { AgentComposerCommand } from './types';
 
 import buildClassName from '../../../util/buildClassName';
 
@@ -21,10 +20,13 @@ export type OwnProps = {
   isOpen: boolean;
   selectedIndex: number;
   botCommands?: ApiBotCommand[];
+  agentCommands?: AgentComposerCommand[];
+  agentUser?: ApiUser;
   quickReplies?: ApiQuickReply[];
   quickReplyMessages?: Record<number, ApiMessage>;
   self: ApiUser;
   onCommandSelect: (command: ApiBotCommand) => void;
+  onAgentCommandSelect?: (command: AgentComposerCommand) => void;
   onQuickReplySelect: (quickReply: ApiQuickReply) => void;
 };
 
@@ -38,16 +40,20 @@ const ChatCommandTooltip = ({ isOpen, ...props }: OwnProps) => {
   const {
     selectedIndex,
     botCommands,
+    agentCommands,
+    agentUser,
     quickReplies,
     quickReplyMessages,
     self,
     onCommandSelect,
+    onAgentCommandSelect,
     onQuickReplySelect,
   } = useFrozenProps(props, !isOpen);
 
   const containerRef = useRef<HTMLDivElement>();
 
   const handleSendCommand = useLastCallback((command: ApiBotCommand) => onCommandSelect(command));
+  const handleAgentCommandSelect = useLastCallback((command: AgentComposerCommand) => onAgentCommandSelect?.(command));
   const handleSendQuickReply = useLastCallback((quickReply: ApiQuickReply) => onQuickReplySelect(quickReply));
 
   const quickRepliesWithDescription = useMemo(() => {
@@ -62,7 +68,7 @@ const ChatCommandTooltip = ({ isOpen, ...props }: OwnProps) => {
     });
   }, [quickReplies, quickReplyMessages]);
 
-  const isEmpty = !botCommands?.length && !quickReplies?.length;
+  const isEmpty = !botCommands?.length && !agentCommands?.length && !quickReplies?.length;
 
   useEffect(() => {
     containerRef.current?.querySelector<HTMLElement>('.focus')?.scrollIntoView({ block: 'nearest' });
@@ -99,6 +105,18 @@ const ChatCommandTooltip = ({ isOpen, ...props }: OwnProps) => {
             clickArg={command}
             onClick={handleSendCommand}
             focus={selectedIndex - (quickRepliesWithDescription?.length || 0) === index}
+          />
+        ))}
+        {agentCommands?.map((command, index) => (
+          <ChatCommand
+            key={`agent_${command.setting}_${command.value}`}
+            command={command.command}
+            description={command.description}
+            peer={agentUser}
+            withAvatar
+            clickArg={command}
+            onClick={handleAgentCommandSelect}
+            focus={selectedIndex - (quickRepliesWithDescription?.length || 0) - (botCommands?.length || 0) === index}
           />
         ))}
       </div>

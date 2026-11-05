@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from '@teact';
 import { getActions } from '../../../global';
 
+import type { ApiAiConversationFolder } from '../../../api/types';
 import type { GlobalState } from '../../../global/types';
 import type { FolderEditDispatch } from '../../../hooks/reducers/useFoldersReducer';
 import { LeftColumnContent } from '../../../types';
@@ -13,11 +14,13 @@ import {
   CHAT_LIST_SLICE,
   SAVED_FOLDER_ID,
 } from '../../../config';
+import { isAgentConversation } from '../../../global/helpers/chats';
 import { IS_APP, IS_MAC_OS } from '../../../util/browser/windowEnvironment';
 import buildClassName from '../../../util/buildClassName';
 import { getOrderKey, getPinnedChatsCount } from '../../../util/folderManager';
 import { ARCHIVE_ANIMATION_ID } from './hooks';
 
+import useSelector from '../../../hooks/data/useSelector';
 import usePeerStoriesPolling from '../../../hooks/polling/usePeerStoriesPolling';
 import useTopOverscroll from '../../../hooks/scroll/useTopOverscroll';
 import { useFolderManagerForOrderedIds } from '../../../hooks/useFolderManager';
@@ -36,7 +39,7 @@ import ChatListPanes from './panes/ChatListPanes';
 
 type OwnProps = {
   className?: string;
-  folderType: 'all' | 'archived' | 'saved' | 'folder';
+  folderType: 'all' | 'archived' | 'saved' | 'folder' | 'agent';
   folderId?: number;
   isActive: boolean;
   canDisplayArchive?: boolean;
@@ -46,6 +49,9 @@ type OwnProps = {
   withTags?: boolean;
   isFoldersSidebarShown?: boolean;
   isStoryRibbonShown?: boolean;
+  isAiList?: boolean;
+  aiFolderKind?: 'all' | 'bots' | 'custom';
+  aiFolderId?: number;
   foldersDispatch?: FolderEditDispatch;
   noAbsolutePositioning?: boolean;
   noVirtualization?: boolean;
@@ -55,6 +61,7 @@ type OwnProps = {
   onScroll?: (e: React.UIEvent<HTMLDivElement>) => void;
 };
 
+const EMPTY_AI_CONVERSATION_FOLDERS: Record<number, ApiAiConversationFolder> = {};
 const INTERSECTION_THROTTLE = 200;
 const RESERVED_HOTKEYS = new Set(['9', '0']);
 
@@ -70,6 +77,9 @@ const ChatList = ({
   withTags,
   isFoldersSidebarShown,
   isStoryRibbonShown,
+  isAiList,
+  aiFolderKind,
+  aiFolderId,
   foldersDispatch,
   noAbsolutePositioning,
   noVirtualization,
@@ -92,13 +102,32 @@ const ChatList = ({
   const isArchived = folderType === 'archived';
   const isAllFolder = folderType === 'all';
   const isSaved = folderType === 'saved';
-  const resolvedFolderId = (
-    isAllFolder ? ALL_FOLDER_ID : isArchived ? ARCHIVED_FOLDER_ID : isSaved ? SAVED_FOLDER_ID : folderId!
-  );
+  const isAgentFolder = folderType === 'agent';
+  const resolvedFolderId = isAllFolder ? ALL_FOLDER_ID
+    : isAgentFolder ? (folderId ?? ALL_FOLDER_ID)
+      : isArchived ? ARCHIVED_FOLDER_ID
+        : isSaved ? SAVED_FOLDER_ID : folderId!;
 
   const shouldDisplayArchive = isAllFolder && canDisplayArchive && archiveSettings;
 
-  const orderedIds = useFolderManagerForOrderedIds(resolvedFolderId);
+  const folderOrderedIds = useFolderManagerForOrderedIds(resolvedFolderId);
+  const chatsById = useSelector((global) => global.chats.byId);
+  const usersById = useSelector((global) => global.users.byId);
+  const aiConversationFolders = useSelector((global) => (
+    global.aiConversationFolders.ownerUserId === global.currentUserId
+      ? global.aiConversationFolders.byId : EMPTY_AI_CONVERSATION_FOLDERS
+  ));
+  const orderedIds = useMemo(() => folderOrderedIds?.filter((id) => {
+    if (isAgentFolder !== isAgentConversation(chatsById[id])) return false;
+    if (!isAiList || aiFolderKind === 'all') return true;
+    if (aiFolderKind === 'bots') return usersById[id]?.type === 'userTypeBot';
+    if (aiFolderKind === 'custom') {
+      return Boolean(aiFolderId && aiConversationFolders[aiFolderId]?.conversationIds.includes(id));
+    }
+    return true;
+  }), [
+    aiConversationFolders, aiFolderId, aiFolderKind, chatsById, folderOrderedIds, isAgentFolder, isAiList, usersById,
+  ]);
   usePeerStoriesPolling(orderedIds);
 
   const chatsHeight = (orderedIds?.length || 0) * CHAT_HEIGHT_PX;
@@ -192,7 +221,7 @@ const ChatList = ({
   function renderChats() {
     const viewportOffset = orderedIds!.indexOf(viewportIds![0]);
 
-    const pinnedCount = getPinnedChatsCount(resolvedFolderId) || 0;
+    const pinnedCount = isAgentFolder ? 0 : getPinnedChatsCount(resolvedFolderId) || 0;
 
     return viewportIds!.map((id, i) => {
       const isPinned = viewportOffset + i < pinnedCount;
@@ -206,7 +235,7 @@ const ChatList = ({
           teactOrderKey={isPinned ? i : getOrderKey(id, isSaved)}
           chatId={id}
           isPinned={isPinned}
-          folderId={folderId}
+          folderId={isAgentFolder ? undefined : folderId}
           isSavedDialog={isSaved}
           animationType={getAnimationType(id)}
           orderDiff={orderDiffById[id]}
@@ -216,6 +245,7 @@ const ChatList = ({
           observeIntersection={observe}
           withTags={withTags}
           isFoldersSidebarShown={isFoldersSidebarShown}
+          isAiList={isAiList}
         />
       );
     });
@@ -255,7 +285,7 @@ const ChatList = ({
         (
           <EmptyFolder
             folderId={folderId}
-            folderType={folderType}
+            folderType={isAgentFolder ? 'all' : folderType}
             foldersDispatch={foldersDispatch!}
           />
         )

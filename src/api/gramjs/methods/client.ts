@@ -21,6 +21,7 @@ import type {
 import {
   APP_CODE_NAME, DC_IDS,
   DEBUG, DEBUG_GRAMJS, IS_TEST, LANG_PACK, TELEGRAM_API_HASH, TELEGRAM_API_ID, UPLOAD_WORKERS,
+  USE_GRAMSRV_MTPROTO,
 } from '../../../config';
 import { pause } from '../../../util/schedulers';
 import { buildWebPage } from '../apiBuilders/messageContent';
@@ -95,9 +96,10 @@ export function setLanguageCode({ langCode }: { langCode: string }) {
 }
 
 async function loadLocalGramsrvServerInfo() {
-  if (!import.meta.env.DEV || !import.meta.env.TG_LOCAL_MTPROTO_WS_URL) return undefined;
+  if (!USE_GRAMSRV_MTPROTO) return undefined;
 
-  const response = await fetch('/owpengram/server-info');
+  const serverInfoUrl = new URL('/owpengram/server-info', globalThis.location.origin);
+  const response = await fetch(serverInfoUrl);
   if (!response.ok) {
     throw new Error(`Local Gramsrv server-info request failed: HTTP ${response.status}`);
   }

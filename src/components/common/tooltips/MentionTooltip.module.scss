@@ -1,4 +1,10 @@
 .root {
+  .empty {
+    padding: 0.5rem 0.75rem;
+    color: var(--color-text-meta);
+    text-align: center;
+  }
+
   :global(.ListItem.chat-item-clickable) {
     margin: 0;
 

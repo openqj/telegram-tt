@@ -11,6 +11,8 @@ const handlers = new Map<CustomEmojiLoadCallback, string>();
 let prevGlobal: GlobalState | undefined;
 
 addCallback((global: GlobalState) => {
+  if (!global.customEmojis) return;
+
   if (
     global.customEmojis.byId !== prevGlobal?.customEmojis.byId
     || selectCanPlayAnimatedEmojis(global) !== selectCanPlayAnimatedEmojis(prevGlobal)

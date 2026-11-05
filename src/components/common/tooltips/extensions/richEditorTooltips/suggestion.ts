@@ -14,6 +14,7 @@ export const PLUGIN_KEYS = {
   emoji: new PluginKey('richEditorEmojiSuggestion'),
   customEmoji: new PluginKey('richEditorCustomEmojiSuggestion'),
   mention: new PluginKey('richEditorMentionSuggestion'),
+  skill: new PluginKey('richEditorSkillSuggestion'),
   sticker: new PluginKey('richEditorStickerSuggestion'),
   command: new PluginKey('richEditorCommandSuggestion'),
   inlineBot: new PluginKey('richEditorInlineBotSuggestion'),

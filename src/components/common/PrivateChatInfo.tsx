@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
 
 import type {
-  ApiChatMember, ApiTopic, ApiTypingStatus, ApiUser, ApiUserStatus,
+  ApiChatMember, ApiMessage, ApiTopic, ApiTypingStatus, ApiUser, ApiUserStatus,
 } from '../../api/types';
 import type { CustomPeer, StoryViewerOrigin, ThreadId } from '../../types';
 import type { IconName } from '../../types/icons';
@@ -11,6 +11,7 @@ import { MediaViewerOrigin } from '../../types';
 import {
   getMainUsername, getUserStatus, isSystemBot, isUserOnline,
 } from '../../global/helpers';
+import { getMessageText } from '../../global/helpers/messages';
 import {
   selectChatMessages,
   selectTopic,
@@ -19,6 +20,7 @@ import {
 } from '../../global/selectors';
 import { selectThreadMessagesCount } from '../../global/selectors/threads';
 import buildClassName from '../../util/buildClassName';
+import { getServerTime } from '../../util/serverTime';
 import { hasRank } from './helpers/chatMember';
 import { REM } from './helpers/mediaDimensions';
 import renderText from './helpers/renderText';
@@ -84,6 +86,12 @@ type OwnProps = BaseOwnProps & ({
 type StateProps = {
   user?: ApiUser;
   userStatus?: ApiUserStatus;
+  agentBotUsernames?: string[];
+  hermesAgentBotUsernames?: string[];
+  agentActivity?: {
+    text: string;
+    timestamp: number;
+  };
   self?: ApiUser;
   isSavedMessages?: boolean;
   areMessagesLoaded: boolean;
@@ -93,6 +101,42 @@ type StateProps = {
 };
 
 const UPDATE_INTERVAL = 1000 * 60; // 1 min
+const AGENT_TASK_BUTTON_PREFIX = 'at1_';
+const AGENT_ACTIVITY_STALE_AFTER = 10 * 60;
+const AGENT_ACTIVITY_TEXT_PATTERN = new RegExp(
+  '^(?:'
+  + '正在(?:阅读|读取|编辑|修改|运行|执行|创建|查询|更新|派发|委派|分析|'
+  + '查找|确认|检索|保存|调用|等待)(?:：|:)?'
+  + '|正在处理…|正在思考…|已收到任务|已排队|子 Agent 已返回'
+  + ')[^\\r\\n]{0,112}$',
+  'u',
+);
+
+function getAgentActivity(messages: Record<number, ApiMessage> | undefined, agentBotId: string) {
+  if (!messages) return undefined;
+
+  let latestActivity: StateProps['agentActivity'];
+
+  for (const message of Object.values(messages)) {
+    const timestamp = message.editDate || message.date;
+    const hasAgentTaskButton = message.inlineButtons?.some((row) => row.some(({ action }) => (
+      action.type === 'callback' && action.data.startsWith(AGENT_TASK_BUTTON_PREFIX)
+    )));
+
+    if (message.senderId !== agentBotId || !hasAgentTaskButton) continue;
+
+    const text = getMessageText(message)?.text.trim();
+    if (!text || !AGENT_ACTIVITY_TEXT_PATTERN.test(text)) continue;
+
+    const activityText = text === '正在分析任务并决定下一步…' ? '正在思考…' : text;
+
+    if (!latestActivity || timestamp > latestActivity.timestamp) {
+      latestActivity = { text: activityText, timestamp };
+    }
+  }
+
+  return latestActivity;
+}
 
 const PrivateChatInfo = ({
   userId,
@@ -116,6 +160,9 @@ const PrivateChatInfo = ({
   noRtl,
   user,
   userStatus,
+  agentBotUsernames,
+  hermesAgentBotUsernames,
+  agentActivity,
   self,
   topic,
   messagesCount,
@@ -141,6 +188,8 @@ const PrivateChatInfo = ({
   } = getActions();
 
   const lang = useLang();
+  const isAgentActivityFresh = agentActivity
+    && getServerTime() - agentActivity.timestamp < AGENT_ACTIVITY_STALE_AFTER;
 
   const isTopic = Boolean(user?.isBotForum && topic);
   const hasAvatarMediaViewer = withMediaViewer && !isSavedMessages;
@@ -204,6 +253,19 @@ const PrivateChatInfo = ({
       return undefined;
     }
 
+    const username = getMainUsername(user)?.toLowerCase();
+    const isAgentBot = user.type === 'userTypeBot' && username && agentBotUsernames?.includes(username);
+    const isHermesAgentBot = user.type === 'userTypeBot'
+      && username && hermesAgentBotUsernames?.includes(username);
+
+    if (isAgentBot && isAgentActivityFresh) {
+      return (
+        <span className="status" dir="auto">
+          <span className="user-status" dir="auto">{agentActivity.text}</span>
+        </span>
+      );
+    }
+
     if (typingStatusByPeerId) {
       return <TypingStatus typingStatusByPeerId={typingStatusByPeerId} isPrivate />;
     }
@@ -223,6 +285,14 @@ const PrivateChatInfo = ({
                 : lang('ChatInfoNoMessages')
               ) : lang('ChatInfoForumTopic')}
           </Transition>
+        </span>
+      );
+    }
+
+    if (isHermesAgentBot) {
+      return (
+        <span className="status" dir="auto">
+          <span className="user-status" dir="auto">{lang('BotStatusAgentBot')}</span>
         </span>
       );
     }
@@ -336,13 +406,20 @@ const PrivateChatInfo = ({
 
 export default memo(withGlobal<OwnProps>(
   (global, {
-    userId, threadId, forceShowSelf, isSavedDialog,
+    userId, threadId, forceShowSelf, isSavedDialog, noStatusOrTyping,
   }): Complete<StateProps> => {
     const { isSynced } = global;
     const user = userId ? selectUser(global, userId) : undefined;
     const userStatus = userId ? selectUserStatus(global, userId) : undefined;
+    const agentBotUsernames = global.appConfig.agentBotUsernames;
+    const hermesAgentBotUsernames = global.appConfig.hermesAgentBotUsernames;
     const isSavedMessages = !forceShowSelf && user && user.isSelf;
     const self = isSavedMessages ? user : selectUser(global, global.currentUserId!);
+    const username = user && getMainUsername(user)?.toLowerCase();
+    const isAgentBot = Boolean(user?.type === 'userTypeBot' && username && agentBotUsernames?.includes(username));
+    const agentActivity = userId && isAgentBot && !isSavedDialog && !noStatusOrTyping
+      ? getAgentActivity(selectChatMessages(global, userId), userId)
+      : undefined;
     const areMessagesLoaded = Boolean(
       isSavedDialog
         ? selectChatMessages(global, global.currentUserId!)
@@ -355,6 +432,9 @@ export default memo(withGlobal<OwnProps>(
     return {
       user,
       userStatus,
+      agentBotUsernames,
+      hermesAgentBotUsernames,
+      agentActivity,
       isSavedMessages,
       areMessagesLoaded,
       self,

@@ -5,7 +5,7 @@ import {
   MAIN_THREAD_ID,
 } from '../../api/types';
 
-import { ARCHIVED_FOLDER_ID } from '../../config';
+import { ARCHIVED_FOLDER_ID, SYSTEM_PRESET_AGENT_FOLDER_ID } from '../../config';
 import { areDeepEqual } from '../../util/areDeepEqual';
 import {
   areSortedArraysEqual, buildCollectionByKey, omit, omitUndefined, pick,
@@ -307,9 +307,19 @@ function getUpdatedChat<T extends GlobalState>(
     omitProps.push('usernames');
   }
 
+  const isSystemPresetAgent = Boolean(
+    chat?.isSystemPresetAgent
+    || chat?.folderId === SYSTEM_PRESET_AGENT_FOLDER_ID
+    || chatUpdate.isSystemPresetAgent
+    || chatUpdate.folderId === SYSTEM_PRESET_AGENT_FOLDER_ID,
+  );
   const updatedChat: ApiChat = {
     ...chat,
     ...omit(chatUpdate, omitProps),
+    ...(isSystemPresetAgent && {
+      folderId: SYSTEM_PRESET_AGENT_FOLDER_ID,
+      isSystemPresetAgent: true as const,
+    }),
   };
 
   if (!updatedChat.id || !updatedChat.type) {

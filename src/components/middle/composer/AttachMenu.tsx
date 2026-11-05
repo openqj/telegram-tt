@@ -43,6 +43,8 @@ import './AttachMenu.scss';
 
 export type OwnProps = {
   chatId: string;
+  isAgentChat: boolean;
+  attachmentSources?: string[];
   threadId?: ThreadId;
   isButtonVisible: boolean;
   canAttachMedia: boolean;
@@ -77,6 +79,8 @@ export type OwnProps = {
 
 const AttachMenu = ({
   chatId,
+  isAgentChat,
+  attachmentSources,
   threadId,
   isButtonVisible,
   canAttachMedia,
@@ -119,8 +123,13 @@ const AttachMenu = ({
   const [handleMouseEnter, handleMouseLeave, markMouseInside] = useMouseInside(isAttachMenuOpen, closeAttachMenu);
   const [isDateModalOpen, openDateModal, closeDateModal] = useFlag();
 
-  const canSendVideoAndPhoto = canSendPhotos && canSendVideos;
-  const canSendVideoOrPhoto = canSendPhotos || canSendVideos;
+  const canUseSource = (source: string) => !attachmentSources || attachmentSources.includes(source);
+  const canSendPhotosForAgent = canSendPhotos && canUseSource('photo');
+  const canSendVideosForAgent = canSendVideos && canUseSource('video');
+  const canSendDocumentsForAgent = canSendDocuments && canUseSource('document');
+  const canSendAudiosForAgent = canSendAudios && canUseSource('audio');
+  const canSendVideoAndPhoto = canSendPhotosForAgent && canSendVideosForAgent;
+  const canSendVideoOrPhoto = canSendPhotosForAgent || canSendVideosForAgent;
 
   const [isAttachmentBotMenuOpen, markAttachmentBotMenuOpen, unmarkAttachmentBotMenuOpen] = useFlag();
   const isMenuOpen = isAttachMenuOpen || isAttachmentBotMenuOpen;
@@ -166,7 +175,7 @@ const AttachMenu = ({
     updateAttachmentSettings({ shouldCompress: true });
     openSystemFilesDialog(
       Array.from(canSendVideoAndPhoto ? CONTENT_TYPES_WITH_PREVIEW : (
-        canSendPhotos ? SUPPORTED_PHOTO_CONTENT_TYPES : SUPPORTED_VIDEO_CONTENT_TYPES
+        canSendPhotosForAgent ? SUPPORTED_PHOTO_CONTENT_TYPES : SUPPORTED_VIDEO_CONTENT_TYPES
       )).join(','),
       (e) => handleFileSelect(e),
     );
@@ -174,7 +183,7 @@ const AttachMenu = ({
 
   const handleDocumentSelect = useLastCallback(() => {
     updateAttachmentSettings({ shouldCompress: false });
-    openSystemFilesDialog(!canSendDocuments && canSendAudios
+    openSystemFilesDialog(!canSendDocumentsForAgent && canSendAudiosForAgent
       ? Array.from(SUPPORTED_AUDIO_CONTENT_TYPES).join(',') : (
         '*'
       ), (e) => handleFileSelect(e, true));
@@ -294,23 +303,27 @@ const AttachMenu = ({
                       : (canSendPhotos ? 'AttachPhoto' : 'AttachVideo'))}
                   </MenuItem>
                 )}
-                {((canSendDocuments || canSendAudios) && !isPhotoOrVideo)
+                {((canSendDocumentsForAgent || canSendAudiosForAgent) && !isPhotoOrVideo)
                   && (
                     <MenuItem icon="document" onClick={handleDocumentSelect}>
-                      {lang(!canSendDocuments && canSendAudios ? 'InputAttachPopoverMusic' : 'AttachDocument')}
+                      {lang(
+                        !canSendDocumentsForAgent && canSendAudiosForAgent
+                          ? 'InputAttachPopoverMusic'
+                          : 'AttachDocument',
+                      )}
                     </MenuItem>
                   )}
-                {canSendAudios && !editingMessage && (
+                {canSendAudiosForAgent && !editingMessage && (
                   <MenuItem icon="music" onClick={handleMusicSelect}>{lang('AttachMusic')}</MenuItem>
                 )}
-                {canSendDocuments && shouldCollectDebugLogs && (
+                {canSendDocumentsForAgent && shouldCollectDebugLogs && (
                   <MenuItem icon="bug" onClick={handleSendLogs}>
                     {lang('DebugSendLogs')}
                   </MenuItem>
                 )}
               </>
             )}
-            {canAttachPolls && !editingMessage && (
+            {!isAgentChat && canAttachPolls && !editingMessage && (
               <MenuItem icon="poll" onClick={handlePollCreate}>{lang('Poll')}</MenuItem>
             )}
             {canAttachToDoLists && !editingMessage && (

@@ -16,6 +16,7 @@ import './NewChatButton.scss';
 
 type OwnProps = {
   isShown: boolean;
+  isAiList?: boolean;
   onNewPrivateChat: () => void;
   onNewChannel: () => void;
   onNewGroup: () => void;
@@ -24,28 +25,30 @@ type OwnProps = {
 
 const NewChatButton = ({
   isShown,
+  isAiList,
   onNewPrivateChat,
   onNewChannel,
   onNewGroup,
   isAccountFrozen,
 }: OwnProps) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { openFrozenAccountModal } = getActions();
+  const { createNewAgentChat, openFrozenAccountModal } = getActions();
 
-  const shouldRender = isShown || isMenuOpen;
+  const isMenuVisible = isMenuOpen && !isAiList;
+  const shouldRender = isShown || isMenuVisible;
 
   useEffect(() => {
-    if (!shouldRender) {
+    if (!shouldRender || isAiList) {
       setIsMenuOpen(false);
     }
-  }, [shouldRender]);
+  }, [isAiList, shouldRender]);
 
   const lang = useLang();
 
   const fabClassName = buildClassName(
     'NewChatButton',
     shouldRender && 'revealed',
-    isMenuOpen && 'menu-is-open',
+    isMenuVisible && 'menu-is-open',
   );
 
   const toggleIsMenuOpen = useCallback(() => {
@@ -60,29 +63,42 @@ const NewChatButton = ({
     setIsMenuOpen(false);
   }, []);
 
+  const handleCreateNewAgentChat = useCallback(() => {
+    createNewAgentChat();
+  }, [createNewAgentChat]);
+
+  const handleButtonClick = useCallback(() => {
+    if (isAiList) {
+      handleCreateNewAgentChat();
+      return;
+    }
+    toggleIsMenuOpen();
+  }, [handleCreateNewAgentChat, isAiList, toggleIsMenuOpen]);
+
   const menuItems = useMemo(() => (
     <>
       <MenuItem icon="channel" onClick={onNewChannel}>{lang('NewChannel')}</MenuItem>
       <MenuItem icon="group" onClick={onNewGroup}>{lang('NewGroup')}</MenuItem>
       <MenuItem icon="user" onClick={onNewPrivateChat}>{lang('NewMessageTitle')}</MenuItem>
+      <MenuItem icon="ai" onClick={handleCreateNewAgentChat}>{lang('NewAgent')}</MenuItem>
     </>
-  ), [lang, onNewChannel, onNewGroup, onNewPrivateChat]);
+  ), [lang, onNewChannel, onNewGroup, onNewPrivateChat, handleCreateNewAgentChat]);
 
   return (
     <div className={fabClassName} dir={lang.isRtl ? 'rtl' : undefined}>
       <Button
         round
         color="primary"
-        className={isMenuOpen ? 'active' : ''}
-        onClick={toggleIsMenuOpen}
-        ariaLabel={lang(isMenuOpen ? 'Close' : 'NewMessageTitle')}
+        className={isMenuVisible ? 'active' : ''}
+        onClick={handleButtonClick}
+        ariaLabel={lang(isMenuVisible ? 'Close' : isAiList ? 'NewAgent' : 'NewMessageTitle')}
         tabIndex={-1}
       >
         <Icon name="new-chat-filled" />
         <Icon name="close" />
       </Button>
       <Menu
-        isOpen={isMenuOpen}
+        isOpen={isMenuVisible}
         positionX={lang.isRtl ? 'left' : 'right'}
         positionY="bottom"
         autoClose

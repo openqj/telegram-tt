@@ -25,6 +25,7 @@ const CODEX_COMMANDS: Array<{ name: string; description: string }> = [
   },
   { name: 'model', description: 'Choose the model for the current chat.' },
   { name: 'new', description: 'Start a blank chat in the same local workspace, when available.' },
+  { name: 'newbot', description: 'Create and open a Hermes Agent Bot without a model round trip.' },
   { name: 'pet', description: 'Wake or tuck away the desktop pet.' },
   { name: 'pin', description: 'Pin or unpin the current chat, when available.' },
   { name: 'plan', description: 'Toggle plan mode for multi-step planning.' },
@@ -69,7 +70,31 @@ const AGENT_PROMPT_TEMPLATES = [
   },
 ];
 
-export function filterAgentCommands(config: ApiAgentComposerConfig | undefined, query: string) {
+export function filterAgentCommands(
+  config: ApiAgentComposerConfig | undefined,
+  query: string,
+  isHermesAgentBot = false,
+) {
+  const isCommandEnabled = (name: string) => (
+    !isHermesAgentBot || !config?.slashCommands || config.slashCommands.includes(name)
+  );
+  if (isHermesAgentBot && config?.systemPresetKind === 'server_manager') {
+    const normalizedQuery = query.trim().toLowerCase();
+    const commands = [
+      { name: 'add_server', description: 'Add a server to this Agent Bot.' },
+      { name: 'server_status', description: 'Check the status of a saved server.' },
+    ];
+    return commands
+      .filter(({ name }) => isCommandEnabled(name) && name.startsWith(normalizedQuery))
+      .map(({ name, description }): AgentComposerCommand => ({
+        type: 'agentComposerCommand',
+        setting: 'action',
+        value: name,
+        command: name,
+        description,
+      }));
+  }
+
   const isHermesExecutor = config?.executorBackend === 'hermes';
   const models = isHermesExecutor ? [] : (
     config?.models.map((model): AgentComposerCommand => ({
@@ -91,6 +116,7 @@ export function filterAgentCommands(config: ApiAgentComposerConfig | undefined, 
   );
   const normalizedQuery = query.toLowerCase();
   if (normalizedQuery.startsWith('prompts:')) {
+    if (!isCommandEnabled('prompts:')) return [];
     const promptQuery = normalizedQuery.slice('prompts:'.length).trim();
     return AGENT_PROMPT_TEMPLATES
       .filter(({ name }) => name.startsWith(promptQuery))
@@ -105,10 +131,12 @@ export function filterAgentCommands(config: ApiAgentComposerConfig | undefined, 
   }
 
   if (normalizedQuery.startsWith('model ')) {
+    if (!isCommandEnabled('model')) return [];
     const modelQuery = normalizedQuery.slice('model '.length);
     return models.filter((command) => command.command.toLowerCase().slice('model '.length).startsWith(modelQuery));
   }
   if (normalizedQuery.startsWith('reasoning ')) {
+    if (!isCommandEnabled('reasoning')) return [];
     const effortQuery = normalizedQuery.slice('reasoning '.length);
     return reasoningEfforts.filter((command) => (
       command.command.toLowerCase().slice('reasoning '.length).startsWith(effortQuery)
@@ -117,10 +145,15 @@ export function filterAgentCommands(config: ApiAgentComposerConfig | undefined, 
 
   return CODEX_COMMANDS
     .filter(({ name }) => name.startsWith(normalizedQuery.trimEnd())
-      && (!isHermesExecutor || (name !== 'model' && name !== 'reasoning')))
+      && isCommandEnabled(name)
+      && (!isHermesExecutor || (name !== 'model' && name !== 'reasoning'))
+      && (name !== 'model' || models.length > 0)
+      && (name !== 'reasoning' || reasoningEfforts.length > 0))
     .map(({ name, description }): AgentComposerCommand => ({
       type: 'agentComposerCommand',
-      setting: name === 'model' || name === 'reasoning' ? 'submenu' : name === 'status' ? 'action' : 'command',
+      setting: name === 'model' || name === 'reasoning'
+        ? 'submenu'
+        : (name === 'newbot' || name === 'status') ? 'action' : 'command',
       value: name,
       command: name,
       description,

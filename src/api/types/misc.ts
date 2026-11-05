@@ -285,6 +285,10 @@ export interface ApiAppConfig {
   webAppAllowedProtocols: string[];
   premiumInvoiceSlug?: string;
   premiumBotUsername: string;
+  agentBotUsername?: string;
+  agentBotUsernames?: string[];
+  hermesAgentBotUsernames?: string[];
+  agentWorkbenchUrl?: string;
   isPremiumPurchaseBlocked: boolean;
   isGiveawayGiftsPurchaseAvailable: boolean;
   giveawayAddPeersMax: number;

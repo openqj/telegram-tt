@@ -26,7 +26,7 @@ const FORMATTER_HOST_CLASS = 'is-formatter';
 const MAX_FORMATTER_POSITION_ATTEMPTS = 10;
 const SUGGESTION_HOST_CLASS = 'is-suggestion';
 const SURFACE_PRIORITY: RichEditorTooltipSurface[] = [
-  'inlineBot', 'command', 'mention', 'emoji', 'customEmoji', 'sticker',
+  'inlineBot', 'command', 'skill', 'mention', 'emoji', 'customEmoji', 'sticker',
 ];
 
 export class RichEditorTooltipsController {

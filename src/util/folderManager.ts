@@ -70,6 +70,7 @@ interface UnreadCounters {
 
 const UPDATE_THROTTLE = 500;
 const DEBUG_DURATION_LIMIT = 6;
+const EMPTY_PASEO_PROJECT_FOLDERS: Record<number, ApiChatFolder> = {};
 
 const initials = buildInitials();
 
@@ -85,6 +86,9 @@ let prevGlobal: {
   isSavedFolderFullyLoaded?: boolean;
   lastAllMessageIds?: GlobalState['chats']['lastMessageIds']['all'];
   lastSavedMessageIds?: GlobalState['chats']['lastMessageIds']['saved'];
+  paseoWorkbenchChatIds?: string[];
+  paseoProjectFoldersById?: Record<number, ApiChatFolder>;
+  isPaseoWorkbenchActive?: boolean;
   topicsInfoById: GlobalState['chats']['topicsInfoById'];
   chatsById: Record<string, ApiChat>;
   foldersById: Record<string, ApiChatFolder>;
@@ -225,9 +229,15 @@ export function updateFolderManager(global: GlobalState) {
     DEBUG_startedAt = performance.now();
   }
 
+  const paseoWorkbenchChatIds = global.paseoWorkbench?.chatIds;
+  const paseoProjectFoldersById = global.paseoWorkbench?.projectFoldersById || EMPTY_PASEO_PROJECT_FOLDERS;
+  const isPaseoWorkbenchActive = Boolean(global.paseoWorkbench?.isActive);
+  const arePaseoWorkbenchChatsChanged = paseoWorkbenchChatIds !== prevGlobal.paseoWorkbenchChatIds
+    || isPaseoWorkbenchActive !== prevGlobal.isPaseoWorkbenchActive;
   const isAllFolderChanged = Boolean(
-    global.chats.listIds.active
-    && isMainFolderChanged(ALL_FOLDER_ID, global.chats.listIds.active, global.chats.orderedPinnedIds.active),
+    (global.chats.listIds.active || isPaseoWorkbenchActive || prevGlobal.isPaseoWorkbenchActive)
+    && (isMainFolderChanged(ALL_FOLDER_ID, global.chats.listIds.active, global.chats.orderedPinnedIds.active)
+      || arePaseoWorkbenchChatsChanged),
   );
   const isArchivedFolderChanged = Boolean(
     global.chats.listIds.archived
@@ -241,7 +251,8 @@ export function updateFolderManager(global: GlobalState) {
   const isArchivedFullyLoadedChanged = global.chats.isFullyLoaded.archived !== prevGlobal.isArchivedFolderFullyLoaded;
   const isSavedFolderFullyLoadedChanged = global.chats.isFullyLoaded.saved !== prevGlobal.isSavedFolderFullyLoaded;
 
-  const areFoldersChanged = global.chatFolders.byId !== prevGlobal.foldersById;
+  const arePaseoProjectFoldersChanged = paseoProjectFoldersById !== prevGlobal.paseoProjectFoldersById;
+  const areFoldersChanged = global.chatFolders.byId !== prevGlobal.foldersById || arePaseoProjectFoldersChanged;
   const areChatsChanged = global.chats.byId !== prevGlobal.chatsById;
   const areSavedLastMessageIdsChanged = global.chats.lastMessageIds.saved !== prevGlobal.lastSavedMessageIds;
   const areAllLastMessageIdsChanged = global.chats.lastMessageIds.all !== prevGlobal.lastAllMessageIds;
@@ -253,6 +264,8 @@ export function updateFolderManager(global: GlobalState) {
     ...global.chats.listIds.active || [],
     ...global.chats.listIds.archived || [],
     ...global.chats.listIds.saved || [],
+    ...paseoWorkbenchChatIds || [],
+    ...prevGlobal.paseoWorkbenchChatIds || [],
     ...prevGlobal.allFolderListIds || [],
     ...prevGlobal.archivedFolderListIds || [],
     ...prevGlobal.savedFolderListIds || [],
@@ -271,6 +284,7 @@ export function updateFolderManager(global: GlobalState) {
 
   if (!(
     isAllFolderChanged || isArchivedFolderChanged || isSavedFolderChanged || areFoldersChanged
+    || arePaseoWorkbenchChatsChanged
     || areChatsChanged || areUsersChanged || areTopicsChanged || areNotifyDefaultsChanged || areNotifyExceptionsChanged
     || areSavedLastMessageIdsChanged || areAllLastMessageIdsChanged || areThreadsByChatChanged
   )
@@ -285,6 +299,7 @@ export function updateFolderManager(global: GlobalState) {
   const prevAllFolderListIds = prevGlobal.allFolderListIds;
   const prevArchivedFolderListIds = prevGlobal.archivedFolderListIds;
   const prevSavedFolderListIds = prevGlobal.savedFolderListIds;
+  const prevPaseoWorkbenchChatIds = prevGlobal.paseoWorkbenchChatIds;
 
   updateFolders(global, isAllFolderChanged, isArchivedFolderChanged, isSavedFolderChanged, areFoldersChanged);
 
@@ -296,7 +311,11 @@ export function updateFolderManager(global: GlobalState) {
     prevAllFolderListIds,
     prevArchivedFolderListIds,
     prevSavedFolderListIds,
+    prevPaseoWorkbenchChatIds,
   ));
+
+  prevGlobal.paseoWorkbenchChatIds = paseoWorkbenchChatIds;
+  prevGlobal.isPaseoWorkbenchActive = isPaseoWorkbenchActive;
 
   updateResults(unique(affectedFolderIds));
 
@@ -366,11 +385,12 @@ function updateFolders(
   const changedFolders = [];
 
   if (isAllFolderChanged) {
-    const newListIds = global.chats.listIds.active!;
+    const newListIds = global.chats.listIds.active;
     const newPinnedIds = global.chats.orderedPinnedIds.active;
+    const paseoChatIds = global.paseoWorkbench?.isActive ? global.paseoWorkbench.chatIds : [];
 
     prepared.folderSummariesById[ALL_FOLDER_ID] = buildFolderSummaryFromMainList(
-      ALL_FOLDER_ID, newListIds, newPinnedIds,
+      ALL_FOLDER_ID, unique([...(newListIds || []), ...paseoChatIds]), newPinnedIds,
     );
 
     prevGlobal.allFolderListIds = newListIds;
@@ -423,6 +443,25 @@ function updateFolders(
     prevGlobal.foldersById = newFoldersById;
   }
 
+  const newPaseoProjectFoldersById = global.paseoWorkbench?.projectFoldersById || EMPTY_PASEO_PROJECT_FOLDERS;
+  if (newPaseoProjectFoldersById !== prevGlobal.paseoProjectFoldersById) {
+    Object.keys(prevGlobal.paseoProjectFoldersById || {}).forEach((folderId) => {
+      if (newPaseoProjectFoldersById[Number(folderId)]) return;
+
+      delete prepared.folderSummariesById[folderId];
+      changedFolders.push(Number(folderId));
+    });
+
+    Object.values(newPaseoProjectFoldersById).forEach((folder) => {
+      if (folder === prevGlobal.paseoProjectFoldersById?.[folder.id]) return;
+
+      prepared.folderSummariesById[folder.id] = buildFolderSummary(folder);
+      changedFolders.push(folder.id);
+    });
+
+    prevGlobal.paseoProjectFoldersById = newPaseoProjectFoldersById;
+  }
+
   return changedFolders;
 }
 
@@ -455,6 +494,7 @@ function updateChats(
   prevAllFolderListIds?: string[],
   prevArchivedFolderListIds?: string[],
   prevSavedFolderListIds?: string[],
+  prevPaseoWorkbenchChatIds?: string[],
 ) {
   const newChatsById = global.chats.byId;
   const newUsersById = global.users.byId;
@@ -466,15 +506,25 @@ function updateChats(
   const folderSummaries = Object.values(prepared.folderSummariesById);
   const affectedFolderIds = new Set<number>();
 
+  const currentPaseoChatIds = global.paseoWorkbench?.chatIds || [];
+  const activePaseoChatIds = global.paseoWorkbench?.isActive ? currentPaseoChatIds : [];
   const newAllFolderListIds = global.chats.listIds.active;
   const newArchivedFolderListIds = global.chats.listIds.archived;
   const newSavedFolderListIds = global.chats.listIds.saved;
 
-  const newGeneralIds = [...newAllFolderListIds || [], ...newArchivedFolderListIds || []];
+  const newGeneralIds = unique([
+    ...newAllFolderListIds || [],
+    ...activePaseoChatIds,
+    ...newArchivedFolderListIds || [],
+  ]);
   const newGeneralIdsSet = new Set(newGeneralIds);
   const newSavedFolderListIdsSet = newSavedFolderListIds && new Set(newSavedFolderListIds);
   const newAllIds = [...newGeneralIds, ...newSavedFolderListIds || []];
-  let allIds = newAllIds;
+  let allIds = unique([
+    ...newAllIds,
+    ...currentPaseoChatIds,
+    ...(prevPaseoWorkbenchChatIds || []),
+  ]);
   if (newAllFolderListIds !== prevAllFolderListIds || newArchivedFolderListIds !== prevArchivedFolderListIds
     || newSavedFolderListIds !== prevSavedFolderListIds) {
     allIds = unique(allIds.concat(
@@ -983,6 +1033,7 @@ function buildInitials() {
   return {
     prevGlobal: {
       foldersById: {},
+      paseoProjectFoldersById: EMPTY_PASEO_PROJECT_FOLDERS,
       chatsById: {},
       usersById: {},
       topicsInfoById: {},

@@ -3,7 +3,7 @@ import {
 } from '../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../global';
 
-import { DEBUG_LOG_FILENAME } from '../../../config';
+import { DEBUG_LOG_FILENAME, USE_GRAMSRV_MTPROTO } from '../../../config';
 import { selectSharedSettings } from '../../../global/selectors/sharedState';
 import {
   IS_SNAP_EFFECT_SUPPORTED,
@@ -143,19 +143,21 @@ const SettingsExperimental = ({
           <div className="title">{lang('SettingsVaporizeButton')}</div>
         </ListItem>
       </Island>
-      <Island>
-        <Checkbox
-          label={lang('SettingsAllowHttp')}
-          checked={Boolean(shouldAllowHttpTransport)}
-          onCheck={() => setSharedSettingOption({ shouldAllowHttpTransport: !shouldAllowHttpTransport })}
-        />
-        <Checkbox
-          label={lang('SettingsForceHttp')}
-          disabled={!shouldAllowHttpTransport}
-          checked={Boolean(shouldForceHttpTransport)}
-          onCheck={() => setSharedSettingOption({ shouldForceHttpTransport: !shouldForceHttpTransport })}
-        />
-      </Island>
+      {!USE_GRAMSRV_MTPROTO && (
+        <Island>
+          <Checkbox
+            label={lang('SettingsAllowHttp')}
+            checked={Boolean(shouldAllowHttpTransport)}
+            onCheck={() => setSharedSettingOption({ shouldAllowHttpTransport: !shouldAllowHttpTransport })}
+          />
+          <Checkbox
+            label={lang('SettingsForceHttp')}
+            disabled={!shouldAllowHttpTransport}
+            checked={Boolean(shouldForceHttpTransport)}
+            onCheck={() => setSharedSettingOption({ shouldForceHttpTransport: !shouldForceHttpTransport })}
+          />
+        </Island>
+      )}
       <Island>
         <Checkbox
           label={lang('DebugMenuEnableLogs')}

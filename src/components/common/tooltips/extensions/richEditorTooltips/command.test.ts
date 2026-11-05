@@ -24,8 +24,41 @@ describe('Agent composer commands', () => {
     expect(filterAgentCommands(baseConfig, 'reasoning h').map(({ command }) => command)).toEqual(['reasoning high']);
   });
 
+  it('hides model and reasoning commands when the executor has no choices', () => {
+    const config = { ...baseConfig, models: [], reasoningEfforts: [] };
+    const commands = filterAgentCommands(config, '').map(({ command }) => command);
+
+    expect(commands).not.toContain('model');
+    expect(commands).not.toContain('reasoning');
+    expect(filterAgentCommands(config, 'model ')).toEqual([]);
+    expect(filterAgentCommands(config, 'reasoning ')).toEqual([]);
+  });
+
   it('keeps prompt commands available for Hermes', () => {
     expect(filterAgentCommands({ ...baseConfig, executorBackend: 'hermes' }, 'prompts:plan'))
       .toMatchObject([{ command: 'prompts:plan', setting: 'prompt' }]);
+  });
+
+  it('shows only the slash commands enabled for this Agent Bot', () => {
+    const config = { ...baseConfig, slashCommands: ['status', 'newbot'] };
+
+    expect(filterAgentCommands(config, '', true).map(({ command }) => command)).toEqual(['newbot', 'status']);
+    expect(filterAgentCommands(config, 'new', true)).toMatchObject([{ command: 'newbot' }]);
+  });
+
+  it('shows only enabled server manager commands', () => {
+    const config = {
+      ...baseConfig,
+      systemPresetKind: 'server_manager',
+      slashCommands: ['server_status'],
+    };
+
+    expect(filterAgentCommands(config, '', true).map(({ command }) => command)).toEqual(['server_status']);
+  });
+
+  it('does not apply Bot command selections to ordinary Agent conversations', () => {
+    const config = { ...baseConfig, slashCommands: ['newbot'] };
+
+    expect(filterAgentCommands(config, '').map(({ command }) => command)).toContain('status');
   });
 });

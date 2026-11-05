@@ -663,6 +663,7 @@ export type TabState = {
     threadId?: ThreadId;
     messageListType: MessageListType;
     isQuiz?: boolean;
+    mode?: 'agent-settings';
   };
 
   musicPicker?: {

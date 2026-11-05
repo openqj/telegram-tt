@@ -5,13 +5,16 @@ import type {
   ApiChat, ApiTopic, ApiTypingStatus, ApiUser,
 } from '../../api/types';
 import type { IconName } from '../../types/icons';
+import type { AgentActivity } from './helpers/agentActivity';
 import { MediaViewerOrigin, type StoryViewerOrigin, type ThreadId } from '../../types';
 
 import {
   getChatTypeLangKey,
   getGroupStatus,
   getMainUsername,
+  isAgentConversation,
   isChatSuperGroup,
+  isHermesAgentBotUser,
 } from '../../global/helpers';
 import {
   selectChat,
@@ -24,9 +27,11 @@ import {
 } from '../../global/selectors';
 import { selectThreadMessagesCount } from '../../global/selectors/threads';
 import buildClassName from '../../util/buildClassName';
+import { getAgentActivity, isAgentActivityFresh } from './helpers/agentActivity';
 import { REM } from './helpers/mediaDimensions';
 import renderText from './helpers/renderText';
 
+import useIntervalForceUpdate from '../../hooks/schedulers/useIntervalForceUpdate';
 import useLang from '../../hooks/useLang';
 import useLastCallback from '../../hooks/useLastCallback';
 
@@ -39,6 +44,7 @@ import TopicIcon from './TopicIcon';
 import TypingStatus from './TypingStatus';
 
 const TOPIC_ICON_SIZE = 2.5 * REM;
+const AGENT_ACTIVITY_UPDATE_INTERVAL = 60 * 1000;
 
 type OwnProps = {
   chatId: string;
@@ -73,6 +79,8 @@ type StateProps = {
   onlineCount?: number;
   areMessagesLoaded: boolean;
   messagesCount?: number;
+  agentActivity?: AgentActivity;
+  isHermesAgentBot?: boolean;
   self?: ApiUser;
   monoforumChannel?: ApiChat;
 };
@@ -94,6 +102,8 @@ const GroupChatInfo = ({
   chat: realChat,
   onlineCount,
   areMessagesLoaded,
+  agentActivity,
+  isHermesAgentBot,
   topic,
   messagesCount,
   noStatusOrTyping,
@@ -117,6 +127,10 @@ const GroupChatInfo = ({
   const chat = !withMonoforumStatus && monoforumChannel ? monoforumChannel : realChat;
 
   const lang = useLang();
+  const isAgentChat = isAgentConversation(chat);
+  const agentActivityText = isAgentActivityFresh(agentActivity) ? agentActivity?.text : undefined;
+  const isAgentBot = Boolean(chat?.isHermesAgentBot || isHermesAgentBot);
+  useIntervalForceUpdate(isAgentChat ? AGENT_ACTIVITY_UPDATE_INTERVAL : undefined);
 
   const isSuperGroup = chat && isChatSuperGroup(chat);
   const isTopic = Boolean(chat?.isForum && topic);
@@ -151,7 +165,7 @@ const GroupChatInfo = ({
   }
 
   function renderStatusOrTyping() {
-    if (withUpdatingStatus && !areMessagesLoaded && !isRestricted) {
+    if (withUpdatingStatus && !areMessagesLoaded && !isRestricted && !(isAgentChat && status)) {
       return (
         <DotAnimation className="status" content={lang('Updating')} />
       );
@@ -167,6 +181,14 @@ const GroupChatInfo = ({
 
     if (realChat?.isMonoforum) {
       return undefined;
+    }
+
+    if (isAgentChat && !status) {
+      return (
+        <span className="status" dir="auto">
+          {agentActivityText || lang(isAgentBot ? 'BotStatusAgentBot' : 'BotStatusAgent')}
+        </span>
+      );
     }
 
     if (status) {
@@ -289,6 +311,12 @@ const GroupChatInfo = ({
 export default memo(withGlobal<OwnProps>(
   (global, { chatId, threadId, isSavedDialog }): Complete<StateProps> => {
     const chat = selectChat(global, chatId);
+    const isAgentChat = isAgentConversation(chat);
+    const user = selectUser(global, chatId);
+    const isHermesAgentBot = Boolean(
+      chat?.isHermesAgentBot
+      || isHermesAgentBotUser(user, global.appConfig.hermesAgentBotUsernames),
+    );
     const onlineCount = chat ? selectChatOnlineCount(global, chat) : undefined;
     const areMessagesLoaded = Boolean(
       isSavedDialog
@@ -302,6 +330,8 @@ export default memo(withGlobal<OwnProps>(
 
     return {
       chat,
+      agentActivity: isAgentChat ? getAgentActivity(selectChatMessages(global, chatId)) : undefined,
+      isHermesAgentBot,
       onlineCount,
       topic,
       areMessagesLoaded,

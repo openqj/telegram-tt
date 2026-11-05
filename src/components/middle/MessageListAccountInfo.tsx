@@ -9,20 +9,26 @@ import type {
   ApiBotInfo, ApiChat, ApiCountryCode, ApiUserCommonChats, ApiUserFullInfo,
 } from '../../api/types';
 
+import { AGENT_MODEL_NAME, AGENT_REASONING_EFFORT } from '../../config';
 import {
   getBotCoverMediaHash,
   getChatTitle,
   getPhotoFullDimensions,
   getVideoDimensions,
   getVideoMediaHash,
+  isAgentConversation,
   isChatWithVerificationCodesBot,
+  isSystemPresetAgentConversation,
 } from '../../global/helpers';
 import {
   selectBot, selectChat, selectPeer, selectUserCommonChats, selectUserFullInfo,
 } from '../../global/selectors';
+import { useAgentComposerConfig } from '../../util/agentComposerConfig';
+import { useAgentConversationSettings } from '../../util/agentConversationSettings';
 import buildClassName from '../../util/buildClassName';
 import buildStyle from '../../util/buildStyle';
 import { isoToEmoji } from '../../util/emoji/emoji';
+import { getRawPeerId, isUserId } from '../../util/entities/ids';
 import { formatRegistrationMonth, formatRelativeAge, secondsToDate } from '../../util/localization/dateFormat';
 import { getCountryCodeByIso } from '../../util/phoneNumber';
 import stopEvent from '../../util/stopEvent';
@@ -65,7 +71,7 @@ const MessageListAccountInfo = ({
   userFullInfo,
   hasMessages,
 }: OwnProps & StateProps) => {
-  const { loadCommonChats, openChatWithInfo } = getActions();
+  const { loadCommonChats, openChatWithInfo, openPollModal } = getActions();
 
   const lang = useLang();
 
@@ -93,8 +99,18 @@ const MessageListAccountInfo = ({
   const isChatInfoEmpty = !country || !registrationMonth;
 
   const isVerifyCodes = isChatWithVerificationCodesBot(chatId);
+  const isNotebookPreset = isSystemPresetAgentConversation(chat);
 
   const { width, height } = botInfoDimensions || {};
+  const isAgentChat = isAgentConversation(chat);
+  const agentComposerBotUserId = isAgentChat && isUserId(chatId) ? getRawPeerId(chatId).toString() : undefined;
+  const agentComposerConfig = useAgentComposerConfig(agentComposerBotUserId);
+  const agentSettings = useAgentConversationSettings(chatId, agentComposerConfig?.defaultModel);
+
+  const handleOpenAgentSettings = useLastCallback(() => {
+    if (agentComposerConfig?.executorBackend === 'hermes') return;
+    openPollModal({ chatId, messageListType: 'thread', mode: 'agent-settings' });
+  });
 
   const handleClick = useLastCallback((e: React.SyntheticEvent<any>) => {
     stopEvent(e);
@@ -168,10 +184,38 @@ const MessageListAccountInfo = ({
   return (
     <div className={buildClassName(styles.root, 'empty')}>
       {isLoadingFullUser && isChatInfoEmpty && <span>{lang('Loading')}</span>}
-      {(isBotInfoEmpty && isChatInfoEmpty) && !isLoadingFullUser && !hasMessages && (
+      {!isNotebookPreset && (isBotInfoEmpty && isChatInfoEmpty) && !isLoadingFullUser && !hasMessages && (
         <span>{lang('NoMessages')}</span>
       )}
-      {botInfo && (
+      {isNotebookPreset && !hasMessages && (
+        <div className={buildClassName(styles.chatInfo, styles.chatBackground)}>
+          <h3 className={styles.chatInfoTitle}>{lang('NotebookWelcomeTitle')}</h3>
+          <p className={styles.chatInfoSubtitle}>{lang('NotebookWelcomeDescription')}</p>
+        </div>
+      )}
+      {isAgentChat && agentComposerConfig && agentComposerConfig.executorBackend !== 'hermes' && (
+        <div className={buildClassName(styles.chatInfo, styles.chatBackground)}>
+          <h3 className={styles.chatInfoTitle}>
+            {renderText(chat ? getChatTitle(lang, chat) : lang('BotStatusAgent'))}
+          </h3>
+          <MiniTable
+            keyClassName={styles.textColor}
+            data={[
+              [lang('GiftAttributeModel'), (
+                <Link className={styles.link} onClick={handleOpenAgentSettings}>
+                  {agentSettings.model || AGENT_MODEL_NAME}
+                </Link>
+              )],
+              [lang('AgentReasoning'), (
+                <Link className={styles.link} onClick={handleOpenAgentSettings}>
+                  {agentSettings.reasoningEffort || AGENT_REASONING_EFFORT}
+                </Link>
+              )],
+            ]}
+          />
+        </div>
+      )}
+      {!isAgentChat && botInfo && (
         <div
           className={buildClassName(styles.chatInfo, styles.botBackground)}
           style={buildStyle(

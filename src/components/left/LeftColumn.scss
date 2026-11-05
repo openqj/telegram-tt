@@ -1,4 +1,14 @@
 @layer ui.leftcolumn {
+  #LeftColumn {
+    display: flex;
+    flex-direction: column;
+
+    > .Transition {
+      flex: 1;
+      min-height: 0;
+    }
+  }
+
   #NewChat {
     height: 100%;
   }

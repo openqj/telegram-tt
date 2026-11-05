@@ -1,9 +1,9 @@
 import {
-  memo, useCallback, useMemo, useState,
+  memo, useCallback, useEffect, useMemo, useState,
 } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
 
-import type { ApiChatFolder } from '../../api/types';
+import type { ApiAiConversationFolder, ApiChatFolder } from '../../api/types';
 
 import { ALL_FOLDER_ID } from '../../config';
 import buildClassName from '../../util/buildClassName';
@@ -20,6 +20,7 @@ import styles from './ChatFolderModal.module.scss';
 export type OwnProps = {
   isOpen: boolean;
   chatId: string;
+  scope?: 'chats' | 'ai';
   onClose: () => void;
   onCloseAnimationEnd?: () => void;
 };
@@ -27,21 +28,32 @@ export type OwnProps = {
 type StateProps = {
   foldersById?: Record<number, ApiChatFolder>;
   folderOrderedIds?: number[];
+  aiFoldersById: Record<number, ApiAiConversationFolder>;
+  aiFolderOrderedIds?: number[];
 };
 
 const ChatFolderModal = ({
   isOpen,
   chatId,
+  scope = 'chats',
   foldersById,
   folderOrderedIds,
+  aiFoldersById,
+  aiFolderOrderedIds,
   onClose,
   onCloseAnimationEnd,
 }: OwnProps & StateProps) => {
-  const { editChatFolders } = getActions();
+  const { editChatFolders, saveAiConversationFolderMembership } = getActions();
 
   const lang = useLang();
 
   const initialSelectedFolderIds = useMemo(() => {
+    if (scope === 'ai') {
+      return (aiFolderOrderedIds || [])
+        .filter((folderId) => aiFoldersById[folderId]?.conversationIds.includes(chatId))
+        .map(String);
+    }
+
     if (!foldersById) {
       return [];
     }
@@ -54,11 +66,24 @@ const ChatFolderModal = ({
 
       return result;
     }, [] as string[]);
-  }, [chatId, foldersById]);
+  }, [aiFolderOrderedIds, aiFoldersById, chatId, foldersById, scope]);
 
   const [selectedFolderIds, setSelectedFolderIds] = useState<string[]>(initialSelectedFolderIds);
 
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedFolderIds(initialSelectedFolderIds);
+    }
+  }, [initialSelectedFolderIds, isOpen]);
+
   const folders = useMemo(() => {
+    if (scope === 'ai') {
+      return (aiFolderOrderedIds || []).flatMap((folderId) => {
+        const folder = aiFoldersById[folderId];
+        return folder ? [{ label: folder.title, value: String(folderId) }] : [];
+      });
+    }
+
     return folderOrderedIds?.filter((folderId) => folderId !== ALL_FOLDER_ID)
       .map((folderId) => {
         const folder = foldersById ? foldersById[folderId] : undefined;
@@ -72,17 +97,26 @@ const ChatFolderModal = ({
           value: String(folderId),
         };
       }) || [];
-  }, [folderOrderedIds, foldersById]);
+  }, [aiFolderOrderedIds, aiFoldersById, folderOrderedIds, foldersById, scope]);
 
   const handleSubmit = useCallback(() => {
+    if (scope === 'ai') {
+      saveAiConversationFolderMembership({
+        conversationId: chatId,
+        folderIds: selectedFolderIds.map(Number),
+      });
+      onClose();
+      return;
+    }
+
     const idsToRemove = initialSelectedFolderIds.filter((id) => !selectedFolderIds.includes(id)).map(Number);
     const idsToAdd = selectedFolderIds.filter((id) => !initialSelectedFolderIds.includes(id)).map(Number);
 
     editChatFolders({ chatId, idsToRemove, idsToAdd });
     onClose();
-  }, [chatId, editChatFolders, initialSelectedFolderIds, onClose, selectedFolderIds]);
+  }, [chatId, editChatFolders, initialSelectedFolderIds, onClose, saveAiConversationFolderMembership, scope, selectedFolderIds]);
 
-  if (!foldersById || !folderOrderedIds) {
+  if (scope === 'ai' ? !aiFolderOrderedIds : !foldersById || !folderOrderedIds) {
     return undefined;
   }
 
@@ -122,6 +156,10 @@ export default memo(withGlobal<OwnProps>(
     return {
       foldersById,
       folderOrderedIds,
+      aiFoldersById: global.aiConversationFolders.ownerUserId === global.currentUserId
+        ? global.aiConversationFolders.byId : {},
+      aiFolderOrderedIds: global.aiConversationFolders.ownerUserId === global.currentUserId
+        ? global.aiConversationFolders.orderedIds : undefined,
     };
   },
 )(ChatFolderModal));

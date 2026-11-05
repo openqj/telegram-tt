@@ -25,9 +25,16 @@ import {
   selectPeerPaidMessagesStars,
   selectTabState,
 } from '../../../global/selectors';
+import { useAgentComposerConfig } from '../../../util/agentComposerConfig';
+import {
+  isValidAgentModel,
+  saveAgentConversationSettings,
+  useAgentConversationSettings,
+} from '../../../util/agentConversationSettings';
 import buildClassName from '../../../util/buildClassName';
 import { formatShortDuration } from '../../../util/dates/duration';
 import { DAY, HOUR } from '../../../util/dates/units';
+import { getRawPeerId, isUserId } from '../../../util/entities/ids';
 import { generateUniqueNumberId } from '../../../util/generateUniqueId';
 import { formatDateTime, secondsToDate } from '../../../util/localization/dateFormat';
 import { MEMO_EMPTY_ARRAY } from '../../../util/memo';
@@ -80,6 +87,11 @@ const MAX_QUESTION_LENGTH = 255;
 const MAX_SOLUTION_LENGTH = 200;
 const MIN_OPTIONS_COUNT = 1;
 const MIN_QUIZ_OPTIONS_COUNT = 2;
+const AGENT_REASONING_OPTIONS = [
+  ['low', 'AgentReasoningLow'],
+  ['medium', 'AgentReasoningMedium'],
+  ['high', 'AgentReasoningHigh'],
+] as const;
 
 const CLOSE_PERIOD_OPTIONS = [
   HOUR,
@@ -167,6 +179,15 @@ const PollModal = ({
   } = getActions();
 
   const lang = useLang();
+  const isAgentSettingsModal = modal.mode === 'agent-settings';
+  const agentComposerBotUserId = isAgentSettingsModal && isUserId(modal.chatId)
+    ? getRawPeerId(modal.chatId).toString()
+    : undefined;
+  const agentComposerConfig = useAgentComposerConfig(agentComposerBotUserId);
+  const canEditAgentSettings = Boolean(
+    agentComposerConfig && agentComposerConfig.executorBackend !== 'hermes',
+  );
+  const agentSettings = useAgentConversationSettings(modal.chatId, agentComposerConfig?.defaultModel);
 
   const mainButtonRef = useRef<HTMLButtonElement>();
   const optionListRef = useRef<HTMLDivElement>();
@@ -191,6 +212,21 @@ const PollModal = ({
   const [shouldHideResultsUntilClose, setShouldHideResultsUntilClose] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [isCloseDatePickerOpen, setIsCloseDatePickerOpen] = useState(false);
+  const [agentModel, setAgentModel] = useState(agentSettings.model);
+  const [agentReasoningEffort, setAgentReasoningEffort] = useState(agentSettings.reasoningEffort);
+
+  useEffect(() => {
+    if (isAgentSettingsModal) {
+      setAgentModel(agentSettings.model);
+      setAgentReasoningEffort(agentSettings.reasoningEffort);
+    }
+  }, [agentSettings, isAgentSettingsModal]);
+
+  useEffect(() => {
+    if (isAgentSettingsModal && agentComposerConfig?.executorBackend === 'hermes') {
+      closePollModal();
+    }
+  }, [agentComposerConfig?.executorBackend, closePollModal, isAgentSettingsModal]);
 
   const [requestCalendar, calendar] = useSchedule();
   const [isCountryPickerModalOpen, openCountryPickerModal, closeCountryPickerModal] = useFlag();
@@ -322,6 +358,21 @@ const PollModal = ({
   };
 
   const handleClose = useLastCallback(() => {
+    closePollModal();
+  });
+
+  const handleSaveAgentSettings = useLastCallback(() => {
+    if (!agentComposerConfig || agentComposerConfig.executorBackend === 'hermes') {
+      closePollModal();
+      return;
+    }
+    if (!isValidAgentModel(agentModel)) return;
+
+    saveAgentConversationSettings(modal.chatId, {
+      ...agentSettings,
+      model: agentModel.trim(),
+      reasoningEffort: agentReasoningEffort,
+    });
     closePollModal();
   });
 
@@ -602,21 +653,21 @@ const PollModal = ({
   const renderHeader = useMemo(() => (
     <ModalHeader>
       <ModalCloseButton />
-      <ModalTitle>{lang('NewPoll')}</ModalTitle>
+      <ModalTitle>{lang(isAgentSettingsModal ? 'AgentSettings' : 'NewPoll')}</ModalTitle>
       <ModalHeaderAction>
         <Button
           ref={mainButtonRef}
           color="primary"
           pill
-          disabled={isSendDisabled}
+          disabled={isAgentSettingsModal ? !canEditAgentSettings || !isValidAgentModel(agentModel) : isSendDisabled}
           noForcedUpperCase
           size="smaller"
-          onClick={handlePrimarySend}
-          onContextMenu={!isInScheduledList ? handleContextMenu : undefined}
+          onClick={isAgentSettingsModal ? handleSaveAgentSettings : handlePrimarySend}
+          onContextMenu={!isAgentSettingsModal && !isInScheduledList ? handleContextMenu : undefined}
         >
-          {lang('Send')}
+          {lang(isAgentSettingsModal ? 'Save' : 'Send')}
         </Button>
-        {!isInScheduledList && (
+        {!isAgentSettingsModal && !isInScheduledList && (
           <CustomSendMenu
             isOpen={isCustomSendMenuOpen}
             canSchedule={canSchedule}
@@ -629,7 +680,48 @@ const PollModal = ({
       </ModalHeaderAction>
     </ModalHeader>
   ), [canSchedule, handleContextMenu, handleContextMenuClose, handleContextMenuHide,
-    isCustomSendMenuOpen, isInScheduledList, isSendDisabled, lang]);
+    isAgentSettingsModal, agentModel, handleSaveAgentSettings, isCustomSendMenuOpen, canEditAgentSettings,
+    isInScheduledList, isSendDisabled, lang]);
+
+  if (isAgentSettingsModal) {
+    if (!canEditAgentSettings) return;
+
+    return (
+      <Modal
+        isOpen={isOpen}
+        onClose={handleClose}
+        header={renderHeader}
+        ariaLabel={lang('AgentSettings')}
+        width="slim"
+      >
+        <IslandTitle>{lang('GiftAttributeModel')}</IslandTitle>
+        <Island>
+          <InputText
+            className={styles.input}
+            label={lang('GiftAttributeModel')}
+            value={agentModel}
+            error={!isValidAgentModel(agentModel) ? lang('AgentModelInvalid') : undefined}
+            onChange={(e) => setAgentModel(e.currentTarget.value)}
+          />
+        </Island>
+        <IslandTitle>{lang('AgentReasoning')}</IslandTitle>
+        <Island>
+          {AGENT_REASONING_OPTIONS.map(([effort, labelKey]) => (
+            <Interactive key={effort} asLabel clickable>
+              <Control inputEnd>
+                <Radio
+                  value={effort}
+                  checked={agentReasoningEffort === effort}
+                  onChange={() => setAgentReasoningEffort(effort)}
+                />
+                <ControlLabel>{lang(labelKey)}</ControlLabel>
+              </Control>
+            </Interactive>
+          ))}
+        </Island>
+      </Modal>
+    );
+  }
 
   return (
     <>

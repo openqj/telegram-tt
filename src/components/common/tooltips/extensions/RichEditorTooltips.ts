@@ -10,6 +10,7 @@ import { buildFormatterPlugin, refreshFormatter } from './richEditorTooltips/for
 import { buildInlineBotSuggestion } from './richEditorTooltips/inlineBot';
 import { buildMentionSuggestion } from './richEditorTooltips/mention';
 import { buildNativeEmojiSuggestion } from './richEditorTooltips/nativeEmoji';
+import { buildSkillSuggestion } from './richEditorTooltips/skill';
 
 export const RichEditorTooltips = Extension.create<RichEditorTooltipsConfig, RichEditorTooltipsStorage>({
   name: 'richEditorTooltips',
@@ -47,6 +48,9 @@ export const RichEditorTooltips = Extension.create<RichEditorTooltipsConfig, Ric
     }
     if (this.options.mention) {
       plugins.push(buildMentionSuggestion(this.editor, this.options, getController));
+    }
+    if (this.options.skill) {
+      plugins.push(buildSkillSuggestion(this.editor, this.options, getController));
     }
     if (this.options.emoji) {
       plugins.push(buildEmojiSuggestion(this.editor, this.options, getController));

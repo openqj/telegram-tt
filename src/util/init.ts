@@ -36,21 +36,25 @@ import { clearAllStoredSessions } from './sessions';
 import { clearLockScreenWallpaperBlobs, clearPlaintextWallpaperBlobs } from './wallpaperStorage';
 
 export async function initGlobal(force: boolean = false, prevGlobal?: GlobalState) {
-  prevGlobal = prevGlobal || getGlobal();
-  if (!force && 'byTabId' in prevGlobal) {
+  const globalBeforeInit = prevGlobal || getGlobal();
+  let global = globalBeforeInit;
+  if (!force && 'byTabId' in global) {
     // Global was received from a master tab of the same slot
-    await ensureDekForUnlockedSession(prevGlobal);
+    const previousGlobal = global;
+    global = await restoreSharedState(global);
+    if (global !== previousGlobal) setGlobal(global);
+    await ensureDekForUnlockedSession(global);
     return;
   }
 
   const initial = cloneDeep(INITIAL_GLOBAL_STATE);
   const cache = await loadCache(initial);
-  let global = cache || initial;
+  global = cache || initial;
 
   global = await applyPasscodeStateOnBoot(global);
 
   if (force) {
-    global.byTabId = prevGlobal.byTabId;
+    global.byTabId = globalBeforeInit.byTabId;
   }
 
   if (!cache) { // Try loading shared state separately
@@ -74,13 +78,46 @@ export async function initGlobal(force: boolean = false, prevGlobal?: GlobalStat
 
   const currentGlobal = getGlobal();
   if (!force && 'byTabId' in currentGlobal) {
-    await ensureDekForUnlockedSession(currentGlobal);
+    const previousGlobal = currentGlobal;
+    global = await restoreSharedState(currentGlobal);
+    if (global !== previousGlobal) setGlobal(global);
+    await ensureDekForUnlockedSession(global);
     if (cache) setupCaching();
     return;
   }
 
   setGlobal(global);
   if (cache) setupCaching();
+}
+
+async function restoreSharedState(global: GlobalState) {
+  if (global.sharedState?.settings) return global;
+
+  const initialSharedState = cloneDeep(INITIAL_GLOBAL_STATE.sharedState);
+  const sharedState = await loadCachedSharedState()
+    .then((cached) => migrateSharedCache(cached, undefined, initialSharedState))
+    .catch(() => initialSharedState);
+  const settings = sharedState.settings || initialSharedState.settings;
+
+  return {
+    ...global,
+    sharedState: {
+      ...initialSharedState,
+      ...sharedState,
+      settings: {
+        ...initialSharedState.settings,
+        ...settings,
+        themes: {
+          ...initialSharedState.settings.themes,
+          ...settings.themes,
+        },
+        performance: {
+          ...initialSharedState.settings.performance,
+          ...settings.performance,
+        },
+      },
+    },
+  };
 }
 
 async function ensureDekForUnlockedSession(global: GlobalState) {

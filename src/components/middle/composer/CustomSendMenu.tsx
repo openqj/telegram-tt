@@ -31,6 +31,8 @@ export type OwnProps = {
   canSchedule?: boolean;
   canScheduleUntilOnline?: boolean;
   onSendSilent?: NoneToVoidFunction;
+  onAgentQueue?: NoneToVoidFunction;
+  onAgentTaskSteer?: NoneToVoidFunction;
   onSendSchedule?: NoneToVoidFunction;
   onSendWhenOnline?: NoneToVoidFunction;
   onRemoveEffect?: NoneToVoidFunction;
@@ -58,6 +60,8 @@ const CustomSendMenu = ({
   canSchedule,
   canScheduleUntilOnline,
   onSendSilent,
+  onAgentQueue,
+  onAgentTaskSteer,
   onSendSchedule,
   onSendWhenOnline,
   onRemoveEffect,
@@ -157,6 +161,14 @@ const CustomSendMenu = ({
         )}
         dir={lang.isRtl ? 'rtl' : undefined}
       >
+        {onAgentQueue && (
+          <MenuItem icon="new-send" onClick={onAgentQueue}>{lang('AgentTaskQueue')}</MenuItem>
+        )}
+        {onAgentTaskSteer && (
+          <MenuItem icon="stop-square" destructive onClick={onAgentTaskSteer}>
+            {lang('AgentTaskStopAndSend')}
+          </MenuItem>
+        )}
         {onSendSilent && <MenuItem icon="mute" onClick={onSendSilent}>{lang('SendWithoutSound')}</MenuItem>}
         {canSchedule && onSendSchedule && (
           <MenuItem icon="schedule" onClick={onSendSchedule}>

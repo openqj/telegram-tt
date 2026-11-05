@@ -16,3 +16,4 @@ export * from './business';
 export * from './stars';
 export * from './peers';
 export * from './wallet';
+export * from './agent';

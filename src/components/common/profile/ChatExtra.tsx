@@ -22,6 +22,7 @@ import {
   getChatLink,
   getHasAdminRight,
   getMainUsername,
+  isAgentConversation,
   isChatAdmin,
   isChatChannel,
   isUserRightBanned,
@@ -171,6 +172,9 @@ const ChatExtra = ({
   } = userFullInfo || {};
 
   const lang = useLang();
+  const agentRoleDescription = isAgentConversation(chat) && user?.type === 'userTypeBot'
+    ? userFullInfo?.botInfo?.description || lang('AgentBotRoleDescription')
+    : undefined;
 
   const { startViewTransition } = useViewTransition();
   const { createVtnStyle } = useVtn();
@@ -476,6 +480,27 @@ const ChatExtra = ({
               }
             </span>
             <span className="subtitle">{lang(userId ? 'UserBio' : 'Info')}</span>
+          </ListItem>
+        )}
+        {agentRoleDescription && agentRoleDescription !== description && (
+          <ListItem
+            icon="info-filled"
+            iconBg="gray"
+            className={styles.description}
+            multiline
+            narrow
+            isStatic
+            allowSelection
+            style={createVtnStyle('agentRoleDescription')}
+          >
+            <span className="title word-break allow-selection" dir={lang.isRtl ? 'rtl' : undefined}>
+              {renderText(agentRoleDescription, [
+                'br',
+                shouldRenderAllLinks ? 'links' : 'tg_links',
+                'emoji',
+              ])}
+            </span>
+            <span className="subtitle">{lang('BotInfoTitle')}</span>
           </ListItem>
         )}
         {activeChatUsernames && !isTopicInfo && renderUsernames(activeChatUsernames, true)}

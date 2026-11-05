@@ -28,6 +28,8 @@ export type MenuItemProps = {
   withPreventDefaultOnMouseDown?: boolean;
   hasIconPremiumBadge?: boolean;
   clickArg?: number;
+  onFocus?: (e: React.FocusEvent<HTMLDivElement | HTMLAnchorElement>) => void;
+  onPointerEnter?: (e: React.PointerEvent<HTMLDivElement | HTMLAnchorElement>) => void;
   onClick?: (e: React.SyntheticEvent<HTMLDivElement | HTMLAnchorElement>, arg?: number) => void;
   onContextMenu?: (e: React.UIEvent) => void;
 } & ({
@@ -61,6 +63,8 @@ const MenuItem = (props: MenuItemProps) => {
     withPreventDefaultOnMouseDown,
     hasIconPremiumBadge,
     clickArg,
+    onFocus,
+    onPointerEnter,
     onClick,
     onContextMenu,
   } = props;
@@ -129,6 +133,8 @@ const MenuItem = (props: MenuItemProps) => {
         target={target || (href.startsWith(window.location.origin) || IS_TEST ? '_self' : '_blank')}
         rel={rel}
         dir={lang.isRtl ? 'rtl' : undefined}
+        onFocus={onFocus}
+        onPointerEnter={onPointerEnter}
         onClick={onClick}
         onMouseDown={handleMouseDown}
       >
@@ -143,8 +149,10 @@ const MenuItem = (props: MenuItemProps) => {
       tabIndex={disabled ? -1 : 0}
       className={fullClassName}
       onClick={handleClick}
+      onFocus={onFocus}
       onKeyDown={handleKeyDown}
       onMouseDown={handleMouseDown}
+      onPointerEnter={onPointerEnter}
       onContextMenu={onContextMenu}
       aria-label={ariaLabel}
       title={ariaLabel}

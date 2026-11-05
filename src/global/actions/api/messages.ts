@@ -91,6 +91,7 @@ import {
   addActionHandler, getActions, getGlobal, getPromiseActions, setGlobal,
 } from '../../index';
 import { scheduleEphemeralExpiration } from '../../intervals';
+import { sendPaseoWorkbenchMessage } from '../../paseoWorkbenchClient';
 import {
   addChatMessagesById,
   clearMessageSummary,
@@ -253,6 +254,11 @@ addActionHandler('loadViewportMessages', (global, actions, payload): ActionRetur
   // TODO Revise if `isRestricted` check is needed
   if (!chat || isRestricted) {
     onError?.();
+    return;
+  }
+
+  if (chat.isPaseoAgentSession) {
+    onLoaded?.();
     return;
   }
 
@@ -528,6 +534,28 @@ addActionHandler('sendMessage', async (global, actions, payload): Promise<void> 
   }
 
   payload = omit(payload, ['tabId']);
+
+  const paseoSession = chatId ? global.paseoWorkbench?.sessionsByChatId[chatId] : undefined;
+  if (chatId && selectChat(global, chatId)?.isPaseoAgentSession) {
+    const text = payload.text?.trim();
+    if (!paseoSession || !text || payload.scheduledAt || payload.attachments?.length) {
+      if (payload.attachments?.length) {
+        actions.showNotification({ message: { key: 'ErrorUnexpected' }, tabId });
+      }
+      return;
+    }
+
+    actions.syncPaseoWorkbenchActivity({ chatId, activityText: '正在思考…' });
+    try {
+      await sendPaseoWorkbenchMessage(global.currentUserId!, paseoSession.agentId, text);
+    } catch {
+      actions.syncPaseoWorkbenchActivity({ chatId });
+      actions.showNotification({ message: { key: 'ErrorUnexpected' }, tabId });
+    }
+
+    actions.clearWebPagePreview({ tabId });
+    return;
+  }
 
   if (type === 'scheduled' && !payload.scheduledAt) {
     global = updateTabState(global, {

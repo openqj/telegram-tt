@@ -208,6 +208,13 @@ export function getMainUsername(userOrChat: ApiPeer) {
   return userOrChat.usernames?.find((u) => u.isActive)?.username;
 }
 
+export function isHermesAgentBotUser(user: ApiUser | undefined, usernames?: string[]) {
+  if (user?.type !== 'userTypeBot') return false;
+
+  const username = getMainUsername(user)?.toLowerCase();
+  return Boolean(username && usernames?.some((candidate) => candidate.toLowerCase() === username));
+}
+
 export function getPeerStoryHtmlId(userId: string) {
   return `peer-story${userId}`;
 }

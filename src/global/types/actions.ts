@@ -151,6 +151,30 @@ export interface ActionPayloads {
     sessionData?: ApiSessionData;
   };
 
+  setPaseoWorkbenchActive: { isActive: boolean };
+  setActivePaseoFolder: { activePaseoFolder: number };
+  setPaseoProjectFolderOrder: { folderIds: number[] };
+  syncPaseoWorkbenchSessions: {
+    sessions: Array<{
+      hostId: string;
+      agentId: string;
+      hostName: string;
+      provider: string;
+      title: string;
+      projectKey: string;
+      projectName: string;
+      activityText?: string;
+    }>;
+  };
+  syncPaseoWorkbenchActivity: {
+    chatId: string;
+    activityText?: string;
+  };
+  syncPaseoWorkbenchMessages: {
+    chatId: string;
+    messages: ApiMessage[];
+  };
+
   // auth
   setAuthPhoneNumber: { phoneNumber: string };
   setAuthCode: { code: string };
@@ -413,6 +437,11 @@ export interface ActionPayloads {
     chatId: string;
     period: number;
   };
+  createNewAgentChat: undefined;
+  createNewHermesAgentBotChat: undefined;
+  openAgentWorkbench: {
+    shouldCreate?: boolean;
+  } & WithTabId;
   preloadTopChatMessages: undefined;
   loadAllChats: {
     listType: ChatListType;
@@ -465,6 +494,11 @@ export interface ActionPayloads {
   markChatRead: { id: string };
   markChatMessagesRead: { id: string };
   loadChatFolders: undefined;
+  loadAiConversationFolders: undefined;
+  saveAiConversationFolder: { folderId?: number; title: string };
+  deleteAiConversationFolder: { folderId: number };
+  reorderAiConversationFolders: { folderIds: number[] };
+  saveAiConversationFolderMembership: { conversationId: string; folderIds: number[] };
   loadRecommendedChatFolders: undefined;
   editChatFolder: {
     id: number;
@@ -2799,6 +2833,7 @@ export interface ActionPayloads {
     threadId?: ThreadId;
     messageListType: MessageListType;
     isQuiz?: boolean;
+    mode?: 'agent-settings';
   } & WithTabId;
   closePollModal: WithTabId | undefined;
   openMusicPicker: {

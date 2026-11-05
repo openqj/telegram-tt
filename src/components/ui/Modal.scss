@@ -53,6 +53,21 @@
       }
     }
 
+    &.bottom-sheet {
+      @media (max-width: 600px) {
+        .modal-container {
+          align-items: flex-end;
+        }
+
+        .modal-dialog {
+          max-width: 100%;
+          margin: 0;
+          border-bottom-right-radius: 0;
+          border-bottom-left-radius: 0;
+        }
+      }
+    }
+
     .modal-container {
       position: fixed;
       top: 0;

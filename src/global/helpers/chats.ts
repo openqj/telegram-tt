@@ -20,8 +20,8 @@ import type { LangFn } from '../../util/localization';
 import { MAIN_THREAD_ID } from '../../api/types';
 
 import {
-  ANONYMOUS_USER_ID,
-  ARCHIVED_FOLDER_ID, GENERAL_TOPIC_ID, REPLIES_USER_ID, TME_LINK_PREFIX,
+  AGENT_FOLDER_ID, ANONYMOUS_USER_ID,
+  ARCHIVED_FOLDER_ID, GENERAL_TOPIC_ID, REPLIES_USER_ID, SYSTEM_PRESET_AGENT_FOLDER_ID, TME_LINK_PREFIX,
   VERIFICATION_CODES_USER_ID,
 } from '../../config';
 import { getPeerIdDividend, isUserId } from '../../util/entities/ids';
@@ -63,6 +63,25 @@ export function isChatMonoforum(chat: ApiChat) {
   return chat.isMonoforum;
 }
 
+export function isAgentConversation(chat?: ApiChat) {
+  return chat?.isAgent || chat?.folderId === AGENT_FOLDER_ID || isSystemPresetAgentConversation(chat);
+}
+
+export function isSystemPresetAgentConversation(chat?: ApiChat) {
+  return Boolean(chat?.isSystemPresetAgent || chat?.folderId === SYSTEM_PRESET_AGENT_FOLDER_ID);
+}
+
+export function getStartedAgentChatIds(
+  chatIds: string[],
+  lastMessageByChatId: Record<string, number | undefined>,
+) {
+  return chatIds.filter((id) => (lastMessageByChatId[id] || 0) > 0);
+}
+
+export function shouldRequireBotStart(chat: ApiChat | undefined, isBotNotStarted: boolean) {
+  return !isAgentConversation(chat) && isBotNotStarted;
+}
+
 export function isCommonBoxChat(chat: ApiChat) {
   return chat.type === 'chatTypePrivate' || chat.type === 'chatTypeBasicGroup';
 }
@@ -98,6 +117,9 @@ export function getChatTypeLangKey(chat: ApiChat): RegularLangKey {
 export function getChatTitle(lang: LangFn, chat: ApiChat, isSelf = false) {
   if (isSelf) {
     return lang('SavedMessages');
+  }
+  if (isAgentConversation(chat)) {
+    return chat.title || lang('BotStatusAgent');
   }
   return chat.title || lang('HiddenName');
 }

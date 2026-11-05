@@ -1,5 +1,6 @@
 import { Mutex } from 'async-mutex';
 
+import { GRAMSRV_MTPROTO_WS_URL, USE_GRAMSRV_MTPROTO } from '../../../config';
 import { concat } from '../../../util/encoding/buffer';
 
 const closeError = new Error('WebSocket was closed');
@@ -79,8 +80,8 @@ export default class PromisedWebSockets {
   }
 
   getWebSocketLink(ip: string, port: number, isTestServer?: boolean, isPremium?: boolean) {
-    if (import.meta.env.DEV && import.meta.env.TG_LOCAL_MTPROTO_WS_URL) {
-      return import.meta.env.TG_LOCAL_MTPROTO_WS_URL;
+    if (USE_GRAMSRV_MTPROTO && GRAMSRV_MTPROTO_WS_URL) {
+      return GRAMSRV_MTPROTO_WS_URL;
     }
 
     if (port === 443) {

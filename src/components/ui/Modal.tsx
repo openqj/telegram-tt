@@ -37,6 +37,7 @@ export type OwnProps = {
   isOpen?: boolean;
   header?: TeactNode;
   isSlim?: boolean;
+  isBottomSheet?: boolean;
   hasCloseButton?: boolean;
   hasAbsoluteCloseButton?: boolean;
   absoluteCloseButtonColor?: ButtonProps['color'];
@@ -95,6 +96,7 @@ const Modal = (props: OwnProps) => {
     headerClassName,
     dialogClassName,
     isSlim,
+    isBottomSheet,
     hasCloseButton,
     hasAbsoluteCloseButton,
     absoluteCloseButtonColor = 'translucent',
@@ -266,6 +268,7 @@ const Modal = (props: OwnProps) => {
     className,
     noBackdrop && 'transparent-backdrop',
     isSlim && 'slim',
+    isBottomSheet && 'bottom-sheet',
     isLowStackPriority && 'low-priority',
     withBalanceBar && 'with-balance-bar',
   );

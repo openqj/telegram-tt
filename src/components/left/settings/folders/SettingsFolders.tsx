@@ -1,9 +1,10 @@
 import type { FC } from '../../../../lib/teact/teact';
-import { memo, useCallback } from '../../../../lib/teact/teact';
+import { memo, useCallback, useState } from '../../../../lib/teact/teact';
 import { getActions } from '../../../../global';
 
 import type { ApiChatFolder } from '../../../../api/types';
 import type { FolderEditDispatch, FoldersState } from '../../../../hooks/reducers/useFoldersReducer';
+import type { FolderScope } from './SettingsFolderScopeTabs';
 import { SettingsScreens } from '../../../../types';
 
 import { selectChatFilters } from '../../../../hooks/reducers/useFoldersReducer';
@@ -36,11 +37,13 @@ const SettingsFolders: FC<OwnProps> = ({
   onReset,
 }) => {
   const { isMobile } = useAppLayout();
+  const [scope, setScope] = useState<FolderScope>('chats');
 
   const {
     openShareChatFolderModal,
     editChatFolder,
     addChatFolder,
+    saveAiConversationFolder,
     openSettingsScreen,
   } = getActions();
 
@@ -76,6 +79,19 @@ const SettingsFolders: FC<OwnProps> = ({
   const saveState = useCallback((newState: FoldersState) => {
     const { title: { text: title } } = newState.folder;
 
+    if (scope === 'ai') {
+      const normalizedTitle = title.trim();
+      if (!normalizedTitle) {
+        dispatch({ type: 'setError', payload: ERROR_NO_TITLE });
+        return false;
+      }
+
+      saveAiConversationFolder({ folderId: newState.folderId, title: normalizedTitle });
+      dispatch({ type: 'setError', payload: undefined });
+      dispatch({ type: 'setIsTouched', payload: false });
+      return true;
+    }
+
     if (!title) {
       dispatch({ type: 'setError', payload: ERROR_NO_TITLE });
       return false;
@@ -101,7 +117,7 @@ const SettingsFolders: FC<OwnProps> = ({
     dispatch({ type: 'setIsTouched', payload: false });
 
     return true;
-  }, [dispatch, isCreating]);
+  }, [dispatch, isCreating, saveAiConversationFolder, scope]);
 
   const handleSaveFolder = useCallback((cb?: NoneToVoidFunction) => {
     if (!saveState(state)) {
@@ -168,6 +184,8 @@ const SettingsFolders: FC<OwnProps> = ({
           ].includes(shownScreen)}
           onReset={onReset}
           isMobile={isMobile}
+          scope={scope}
+          onScopeChange={setScope}
         />
       );
     case SettingsScreens.FoldersCreateFolder:
@@ -191,6 +209,7 @@ const SettingsFolders: FC<OwnProps> = ({
           onBack={onReset}
           onSaveFolder={handleSaveFolder}
           isMobile={isMobile}
+          isAiScope={scope === 'ai'}
         />
       );
     case SettingsScreens.FoldersIncludedChats:

@@ -106,7 +106,10 @@
     &.record.record-video .icon-round-video,
     &.edit .icon-check,
     &.forward .icon-forward,
-    &.stop .icon-stop-square {
+    &.stop .icon-stop-square,
+    &.stop .icon-pause,
+    &.pause .icon-pause,
+    &.resume .icon-play {
       animation: grow-icon 0.4s ease-out;
     }
 
@@ -388,6 +391,28 @@
     border-radius: 0;
     background: none;
     box-shadow: none;
+  }
+
+  &.is-agent-chat-composer {
+    .composer-wrapper {
+      --agent-composer-main-action: calc(var(--composer-main-button-width) + var(--composer-main-button-gap));
+      --agent-composer-voice-action: calc(var(--composer-main-button-height) + var(--composer-row-gap));
+
+      max-width: calc(100% - var(--agent-composer-main-action) - var(--agent-composer-voice-action));
+    }
+
+    > .Button.agent-voice-button {
+      --action-button-size: var(--composer-main-button-height);
+
+      // The input scroller extends beneath this action, so keep the microphone above it.
+      z-index: 2;
+      margin-left: var(--composer-row-gap);
+      box-shadow: none;
+
+      .icon {
+        font-size: var(--composer-icon-size);
+      }
+    }
   }
 
   .ComposerEmbeddedMessage {

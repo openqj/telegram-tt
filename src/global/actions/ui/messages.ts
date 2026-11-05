@@ -831,6 +831,7 @@ addActionHandler('openPollModal', (global, actions, payload): ActionReturnType =
     threadId,
     messageListType,
     isQuiz,
+    mode,
     tabId = getCurrentTabId(),
   } = payload;
   const replyInfo = selectDraft(global, chatId, threadId ?? MAIN_THREAD_ID)?.replyInfo;
@@ -842,6 +843,7 @@ addActionHandler('openPollModal', (global, actions, payload): ActionReturnType =
       threadId,
       messageListType,
       isQuiz,
+      mode,
     },
   }, tabId);
 });

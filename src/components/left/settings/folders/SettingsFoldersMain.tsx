@@ -3,13 +3,14 @@ import {
 } from '../../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../../global';
 
-import type { ApiChatFolder } from '../../../../api/types';
+import type { ApiAiConversationFolder, ApiChatFolder } from '../../../../api/types';
 import type { FoldersPosition } from '../../../../types';
 
 import {
   ALL_FOLDER_ID, FOLDERS_POSITION_LEFT, FOLDERS_POSITION_TOP, STICKER_SIZE_FOLDER_SETTINGS,
 } from '../../../../config';
 import { getFolderDescriptionText } from '../../../../global/helpers';
+import { getOrderedPaseoProjectFolderIds } from '../../../../global/paseoWorkbench';
 import { selectIsCurrentUserPremium } from '../../../../global/selectors';
 import { selectCurrentLimit } from '../../../../global/selectors/limits';
 import buildClassName from '../../../../util/buildClassName';
@@ -32,10 +33,12 @@ import Island, { IslandOutside, IslandTitle } from '../../../gili/layout/Island'
 import Surface from '../../../gili/layout/Surface';
 import Button from '../../../ui/Button';
 import Checkbox from '../../../ui/Checkbox';
+import ConfirmDialog from '../../../ui/ConfirmDialog';
 import Draggable from '../../../ui/Draggable';
 import ListItem from '../../../ui/ListItem';
 import Loading from '../../../ui/Loading';
 import RadioGroup from '../../../ui/RadioGroup';
+import SettingsFolderScopeTabs, { type FolderScope } from './SettingsFolderScopeTabs';
 
 type OwnProps = {
   isActive?: boolean;
@@ -43,22 +46,31 @@ type OwnProps = {
   onCreateFolder: () => void;
   onEditFolder: (folder: ApiChatFolder) => void;
   onReset: () => void;
+  scope: FolderScope;
+  onScopeChange: (scope: FolderScope) => void;
 };
 
 type StateProps = {
   folderIds?: number[];
   foldersById: Record<number, ApiChatFolder>;
+  aiFoldersById: Record<number, ApiAiConversationFolder>;
+  paseoFoldersById: Record<number, ApiChatFolder>;
   recommendedChatFolders?: ApiChatFolder[];
   maxFolders: number;
   isPremium?: boolean;
   areTagsEnabled?: boolean;
   foldersPosition: FoldersPosition;
+  isAiFoldersLoaded: boolean;
 };
 
 type SortState = {
   orderedFolderIds?: number[];
   dragOrderIds?: number[];
   draggedIndex?: number;
+};
+
+type SettingsFolderItem = Pick<ApiChatFolder, 'id' | 'title' | 'isChatList' | 'color' | 'noTitleAnimations'> & {
+  subtitle?: string;
 };
 
 const FOLDER_HEIGHT_PX = 56;
@@ -73,10 +85,15 @@ const SettingsFoldersMain = ({
   areTagsEnabled,
   foldersPosition,
   isMobile,
+  aiFoldersById,
+  paseoFoldersById,
   onCreateFolder,
   onEditFolder,
   onReset,
+  scope,
+  onScopeChange,
   folderIds,
+  isAiFoldersLoaded,
 }: OwnProps & StateProps) => {
   const {
     loadRecommendedChatFolders,
@@ -87,7 +104,25 @@ const SettingsFoldersMain = ({
     toggleDialogFilterTags,
     openPremiumModal,
     setSharedSettingOption,
+    loadAiConversationFolders,
+    deleteAiConversationFolder,
+    reorderAiConversationFolders,
+    setPaseoProjectFolderOrder,
   } = getActions();
+  const currentFoldersById = useMemo(() => {
+    if (scope === 'chats') return foldersById;
+    if (scope === 'paseo') return paseoFoldersById;
+    return Object.values(aiFoldersById).reduce<Record<number, ApiChatFolder>>((result, folder) => {
+      result[folder.id] = {
+        id: folder.id,
+        title: { text: folder.title },
+        includedChatIds: folder.conversationIds,
+        excludedChatIds: [],
+        emoticon: '📁',
+      };
+      return result;
+    }, {});
+  }, [aiFoldersById, foldersById, paseoFoldersById, scope]);
 
   const [state, setState] = useState<SortState>({
     orderedFolderIds: folderIds,
@@ -96,6 +131,7 @@ const SettingsFoldersMain = ({
   });
 
   const prevFolderIds = usePreviousDeprecated(folderIds);
+  const [folderToDelete, setFolderToDelete] = useState<number>();
 
   // Sync folders state after changing folders in other clients
   useEffect(() => {
@@ -111,12 +147,22 @@ const SettingsFoldersMain = ({
   // Due to the parent Transition, this component never gets unmounted,
   // that's why we use throttled API call on every update.
   useEffect(() => {
-    runThrottledForLoadRecommended(() => {
-      loadRecommendedChatFolders();
-    });
-  }, [loadRecommendedChatFolders]);
+    if (scope === 'ai' && !isAiFoldersLoaded) {
+      loadAiConversationFolders();
+    } else if (scope === 'chats') {
+      runThrottledForLoadRecommended(() => {
+        loadRecommendedChatFolders();
+      });
+    }
+  }, [isAiFoldersLoaded, loadAiConversationFolders, loadRecommendedChatFolders, scope]);
 
   const handleCreateFolder = useCallback(() => {
+    if (scope === 'ai') {
+      if ((folderIds?.length || 0) >= 100) return;
+      onCreateFolder();
+      return;
+    }
+
     if (Object.keys(foldersById).length >= maxFolders - 1) {
       openLimitReachedModal({
         limit: 'dialogFilters',
@@ -126,7 +172,7 @@ const SettingsFoldersMain = ({
     }
 
     onCreateFolder();
-  }, [foldersById, maxFolders, onCreateFolder, openLimitReachedModal]);
+  }, [folderIds?.length, foldersById, maxFolders, onCreateFolder, openLimitReachedModal, scope]);
 
   const lang = useLang();
 
@@ -136,38 +182,39 @@ const SettingsFoldersMain = ({
   });
 
   const chatsCountByFolderId = useFolderManagerForChatsCount();
-  const userFolders = useMemo(() => {
+  const userFolders = useMemo<SettingsFolderItem[] | undefined>(() => {
     if (!folderIds) {
       return undefined;
     }
 
-    if (folderIds.length <= 1) {
+    if (scope === 'chats' && folderIds.length <= 1) {
       return MEMO_EMPTY_ARRAY;
     }
 
-    return folderIds.map((id) => {
-      const folder = foldersById[id];
+    return folderIds.flatMap((id): SettingsFolderItem[] => {
+      const folder = currentFoldersById[id];
+      if (!folder) return [];
 
-      if (id === ALL_FOLDER_ID) {
-        return {
+      if (scope === 'chats' && id === ALL_FOLDER_ID) {
+        return [{
           id,
           title: {
             text: lang('FilterAllChats'),
             entities: [],
           },
-        };
+        }];
       }
 
-      return {
+      return [{
         id: folder.id,
         title: folder.title,
-        subtitle: getFolderDescriptionText(lang, folder, chatsCountByFolderId[folder.id]),
+        subtitle: scope === 'ai' ? undefined : getFolderDescriptionText(lang, folder, chatsCountByFolderId[folder.id]),
         isChatList: folder.isChatList,
         color: folder.color,
         noTitleAnimations: folder.noTitleAnimations,
-      };
+      }];
     });
-  }, [folderIds, foldersById, lang, chatsCountByFolderId]);
+  }, [currentFoldersById, folderIds, lang, chatsCountByFolderId, scope]);
 
   const handleCreateFolderFromRecommended = useCallback((folder: ApiChatFolder) => {
     if (Object.keys(foldersById).length >= maxFolders - 1) {
@@ -198,17 +245,23 @@ const SettingsFoldersMain = ({
       return;
     }
 
-    dragOrderIds.splice(index + delta + (isPremium ? 0 : 1), 0, id as number);
+    dragOrderIds.splice(index + delta + (scope === 'chats' && !isPremium ? 1 : 0), 0, id as number);
     setState((current) => ({
       ...current,
       draggedIndex: index,
       dragOrderIds,
     }));
-  }, [folderIds?.length, isPremium, state.orderedFolderIds]);
+  }, [folderIds?.length, isPremium, scope, state.orderedFolderIds]);
 
   const handleDragEnd = useCallback(() => {
     setState((current) => {
-      sortChatFolders({ folderIds: current.dragOrderIds! });
+      if (scope === 'ai') {
+        reorderAiConversationFolders({ folderIds: current.dragOrderIds! });
+      } else if (scope === 'paseo') {
+        setPaseoProjectFolderOrder({ folderIds: current.dragOrderIds! });
+      } else {
+        sortChatFolders({ folderIds: current.dragOrderIds! });
+      }
 
       return {
         ...current,
@@ -216,56 +269,85 @@ const SettingsFoldersMain = ({
         draggedIndex: undefined,
       };
     });
-  }, [sortChatFolders]);
+  }, [reorderAiConversationFolders, scope, setPaseoProjectFolderOrder, sortChatFolders]);
+
+  const handleDeleteAiFolder = useCallback(() => {
+    if (folderToDelete === undefined) return;
+    deleteAiConversationFolder({ folderId: folderToDelete });
+    setFolderToDelete(undefined);
+  }, [deleteAiConversationFolder, folderToDelete]);
 
   const handleFoldersPositionChange = useLastCallback((value: string) => {
     setSharedSettingOption({ foldersPosition: value as FoldersPosition });
   });
 
   const canCreateNewFolder = useMemo(() => {
-    return !isPremium || Object.keys(foldersById).length < maxFolders - 1;
-  }, [foldersById, isPremium, maxFolders]);
+    if (scope === 'paseo') return false;
+
+    return scope === 'ai'
+      ? isAiFoldersLoaded && (folderIds?.length || 0) < 100
+      : !isPremium || Object.keys(foldersById).length < maxFolders - 1;
+  }, [folderIds?.length, foldersById, isAiFoldersLoaded, isPremium, maxFolders, scope]);
 
   return (
     <Surface scrollable className="settings-content no-border">
-      <IslandOutside className="settings-content-header">
-        <AnimatedIconWithPreview
-          size={STICKER_SIZE_FOLDER_SETTINGS}
-          tgsUrl={LOCAL_TGS_URLS.FoldersAll}
-          className="settings-content-icon"
-        />
+      <SettingsFolderScopeTabs scope={scope} onChange={onScopeChange} />
+      {scope !== 'paseo' && (
+        <IslandOutside className="settings-content-header">
+          <AnimatedIconWithPreview
+            size={STICKER_SIZE_FOLDER_SETTINGS}
+            tgsUrl={LOCAL_TGS_URLS.FoldersAll}
+            className="settings-content-icon"
+          />
 
-        <p className="settings-item-description mb-3" dir="auto">
-          {lang('CreateNewFilterInfo')}
-        </p>
+          <p className="settings-item-description mb-3" dir="auto">
+            {lang('CreateNewFilterInfo')}
+          </p>
 
-        {canCreateNewFolder && (
-          <Button
-            className="settings-button with-icon"
-            color="primary"
-            pill
-            fluid
-            onClick={handleCreateFolder}
-            isRtl={lang.isRtl}
-            iconName="add"
-          >
-            {lang('CreateNewFilter')}
-          </Button>
-        )}
-      </IslandOutside>
+          {canCreateNewFolder && (
+            <Button
+              className="settings-button with-icon"
+              color="primary"
+              pill
+              fluid
+              onClick={handleCreateFolder}
+              isRtl={lang.isRtl}
+              iconName="add"
+            >
+              {lang('CreateNewFilter')}
+            </Button>
+          )}
+        </IslandOutside>
+      )}
 
       <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>{lang('Filters')}</IslandTitle>
       <Island>
+        {scope === 'ai' && (
+          <>
+            <ListItem className="no-icon settings-sortable-item" narrow inactive multiline isStatic>
+              <span className="title">{lang('FilterAllChatsShort')}</span>
+            </ListItem>
+            <ListItem className="no-icon settings-sortable-item" narrow inactive multiline isStatic>
+              <span className="title">{lang('FilterBots')}</span>
+            </ListItem>
+          </>
+        )}
+        {scope === 'paseo' && (
+          <ListItem className="no-icon settings-sortable-item" narrow inactive multiline isStatic>
+            <span className="title">{lang('FilterAllChatsShort')}</span>
+          </ListItem>
+        )}
         <div className="settings-sortable-container" style={`height: ${(folderIds?.length || 0) * FOLDER_HEIGHT_PX}px`}>
           {userFolders?.length ? userFolders.map((folder, i) => {
-            const isBlocked = i > maxFolders - 1;
+            const isBlocked = scope === 'chats' && i > maxFolders - 1;
             const isDragged = state.draggedIndex === i;
             const draggedTop = (state.orderedFolderIds?.indexOf(folder.id) ?? 0) * FOLDER_HEIGHT_PX;
             const top = (state.dragOrderIds?.indexOf(folder.id) ?? 0) * FOLDER_HEIGHT_PX;
 
-            const shouldRenderColor = folder?.color !== undefined && folder.color !== -1 && areTagsEnabled;
+            const shouldRenderColor = scope === 'chats'
+              && folder?.color !== undefined && folder.color !== -1 && areTagsEnabled;
 
-            if (folder.id === ALL_FOLDER_ID) {
+            if (scope === 'chats' && folder.id === ALL_FOLDER_ID) {
               return (
                 <Draggable
                   key={folder.id}
@@ -311,12 +393,16 @@ const SettingsFoldersMain = ({
                 <ListItem
                   className="drag-item no-icon settings-sortable-item"
                   narrow
-                  secondaryIcon="more"
+                  secondaryIcon={scope === 'paseo' ? undefined : 'more'}
                   multiline
-                  contextActions={[
+                  contextActions={scope === 'paseo' ? undefined : [
                     {
                       handler: () => {
-                        openDeleteChatFolderModal({ folderId: folder.id });
+                        if (scope === 'ai') {
+                          setFolderToDelete(folder.id);
+                        } else {
+                          openDeleteChatFolderModal({ folderId: folder.id });
+                        }
                       },
                       destructive: true,
                       title: lang('Delete'),
@@ -324,13 +410,13 @@ const SettingsFoldersMain = ({
                     },
                   ]}
 
-                  onClick={() => {
+                  onClick={scope === 'paseo' ? undefined : () => {
                     if (isBlocked) {
                       openLimitReachedModal({
                         limit: 'dialogFilters',
                       });
                     } else {
-                      onEditFolder(foldersById[folder.id]);
+                      onEditFolder(currentFoldersById[folder.id]);
                     }
                   }}
                 >
@@ -343,8 +429,8 @@ const SettingsFoldersMain = ({
                     {isBlocked && <Icon name="lock-filled" className="settings-folders-blocked-icon" />}
                   </span>
                   <span className="subtitle">
-                    {folder.isChatList && <Icon name="link" className="mr-1" />}
-                    {folder.subtitle}
+                    {scope === 'chats' && folder.isChatList && <Icon name="link" className="mr-1" />}
+                    {scope === 'chats' && folder.subtitle}
                   </span>
 
                   {
@@ -368,7 +454,16 @@ const SettingsFoldersMain = ({
         </div>
       </Island>
 
-      {(recommendedChatFolders && Boolean(recommendedChatFolders.length)) && (
+      <ConfirmDialog
+        isOpen={folderToDelete !== undefined}
+        text={lang('FilterDeleteAlert')}
+        confirmLabel={lang('Delete')}
+        confirmIsDestructive
+        confirmHandler={handleDeleteAiFolder}
+        onClose={() => setFolderToDelete(undefined)}
+      />
+
+      {scope === 'chats' && (recommendedChatFolders && Boolean(recommendedChatFolders.length)) && (
         <>
           <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>
             {lang('FilterRecommended')}
@@ -408,24 +503,26 @@ const SettingsFoldersMain = ({
           </Island>
         </>
       )}
-      <Island>
-        <div className="settings-item-relative">
-          <Checkbox
-            label={lang('ShowFolderTags')}
-            subLabel={lang('ShowFolderTagsHint')}
-            checked={isPremium && areTagsEnabled}
-            onChange={handleToggleTags}
-            onClickLabel={(event) => {
-              if (!isPremium) {
-                event.preventDefault();
-                openPremiumModal();
-              }
-            }}
-          />
-          {!isPremium && <Icon name="lock-filled" className="settings-folders-lock-icon" />}
-        </div>
-      </Island>
-      {!isMobile && (
+      {scope === 'chats' && (
+        <Island>
+          <div className="settings-item-relative">
+            <Checkbox
+              label={lang('ShowFolderTags')}
+              subLabel={lang('ShowFolderTagsHint')}
+              checked={isPremium && areTagsEnabled}
+              onChange={handleToggleTags}
+              onClickLabel={(event) => {
+                if (!isPremium) {
+                  event.preventDefault();
+                  openPremiumModal();
+                }
+              }}
+            />
+            {!isPremium && <Icon name="lock-filled" className="settings-folders-lock-icon" />}
+          </div>
+        </Island>
+      )}
+      {scope === 'chats' && !isMobile && (
         <>
           <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>{lang('TabsPosition')}</IslandTitle>
           <Island>
@@ -449,20 +546,34 @@ const SettingsFoldersMain = ({
 };
 
 export default memo(withGlobal<OwnProps>(
-  (global): Complete<StateProps> => {
+  (global, { scope }): Complete<StateProps> => {
     const {
       orderedIds: folderIds,
       byId: foldersById,
       recommended: recommendedChatFolders,
       areTagsEnabled,
     } = global.chatFolders;
+    const aiFolders = global.aiConversationFolders;
+    const isAiFoldersLoaded = aiFolders.ownerUserId === global.currentUserId && Boolean(aiFolders.isLoaded);
+    const paseoWorkbench = global.paseoWorkbench;
+    const isPaseoFoldersLoaded = Boolean(global.currentUserId
+      && paseoWorkbench?.ownerUserId === global.currentUserId);
 
     return {
-      folderIds,
+      folderIds: scope === 'ai'
+        ? (isAiFoldersLoaded ? aiFolders.orderedIds : undefined)
+        : scope === 'paseo'
+          ? (isPaseoFoldersLoaded && paseoWorkbench
+            ? getOrderedPaseoProjectFolderIds(paseoWorkbench.projectFoldersById, paseoWorkbench.projectFolderOrder)
+            : undefined)
+          : folderIds,
       foldersById,
-      isPremium: selectIsCurrentUserPremium(global),
-      recommendedChatFolders,
-      maxFolders: selectCurrentLimit(global, 'dialogFilters'),
+      aiFoldersById: isAiFoldersLoaded ? aiFolders.byId : {},
+      paseoFoldersById: isPaseoFoldersLoaded && paseoWorkbench ? paseoWorkbench.projectFoldersById : {},
+      isAiFoldersLoaded,
+      isPremium: scope === 'chats' && selectIsCurrentUserPremium(global),
+      recommendedChatFolders: scope === 'chats' ? recommendedChatFolders : undefined,
+      maxFolders: scope === 'ai' ? 100 : selectCurrentLimit(global, 'dialogFilters'),
       areTagsEnabled,
       foldersPosition: global.sharedState.settings.foldersPosition,
     };

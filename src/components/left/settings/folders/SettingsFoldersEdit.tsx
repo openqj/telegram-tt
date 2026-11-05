@@ -57,6 +57,7 @@ type OwnProps = {
   onBack: () => void;
   onSaveFolder: (cb?: VoidFunction) => void;
   isMobile?: boolean;
+  isAiScope?: boolean;
 };
 
 type StateProps = {
@@ -102,6 +103,7 @@ const SettingsFoldersEdit = ({
   onSaveFolder,
   isCurrentUserPremium,
   isMobile,
+  isAiScope,
 }: OwnProps & StateProps) => {
   const {
     loadChatlistInvites,
@@ -179,8 +181,9 @@ const SettingsFoldersEdit = ({
   ), [state.folder.title]);
 
   const folderTitleMaxLength = useMemo(() => {
+    if (isAiScope) return 64;
     return FOLDER_TITLE_MAX_LENGTH - (currentCustomEmoji ? currentCustomEmoji.length : 0);
-  }, [currentCustomEmoji]);
+  }, [currentCustomEmoji, isAiScope]);
 
   const setEmoticon = useCallback((_emoticon: string | ApiSticker) => {
     let text = state.folder.title.text;
@@ -388,14 +391,14 @@ const SettingsFoldersEdit = ({
             className="settings-content-icon"
           />
 
-          {isCreating && (
+          {isCreating && !isAiScope && (
             <p className="settings-item-description mb-3" dir={lang.isRtl ? 'rtl' : undefined}>
               {lang('FilterIncludeInfo')}
             </p>
           )}
           <Island className="settings-folders-input-container">
             <InputText
-              className={buildClassName(!isMobile && 'settings-folders-input-with-icon')}
+              className={buildClassName(!isMobile && !isAiScope && 'settings-folders-input-with-icon')}
               label={lang('FilterNameHint')}
               value={titleText}
               maxLength={folderTitleMaxLength}
@@ -403,7 +406,7 @@ const SettingsFoldersEdit = ({
               error={state.error && state.error === ERROR_NO_TITLE ? lang(ERROR_NO_TITLE) : undefined}
             />
 
-            {!isMobile && (
+            {!isMobile && !isAiScope && (
               <div className="settings-folders-icon-picker" dir={lang.isRtl ? 'rtl' : undefined}>
                 <div
                   className="settings-folders-icon-picker-button"
@@ -425,7 +428,7 @@ const SettingsFoldersEdit = ({
           </Island>
         </IslandOutside>
 
-        {!isOnlyInvites && (
+        {!isAiScope && !isOnlyInvites && (
           <>
             {state.error && state.error === ERROR_NO_CHATS && (
               <IslandDescription className="color-danger" dir={lang.isRtl ? 'rtl' : undefined}>
@@ -449,7 +452,7 @@ const SettingsFoldersEdit = ({
           </>
         )}
 
-        {!isOnlyInvites && !isEditingChatList && (
+        {!isAiScope && !isOnlyInvites && !isEditingChatList && (
           <>
             <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>{lang('FilterExclude')}</IslandTitle>
             <Island>
@@ -467,6 +470,7 @@ const SettingsFoldersEdit = ({
           </>
         )}
 
+        {!isAiScope && <>
         <IslandTitle className="color-picker-header" dir={lang.isRtl ? 'rtl' : undefined}>
           <span className="color-picker-title-text">{lang('FilterColorTitle')}</span>
           <div className={buildClassName(
@@ -531,10 +535,12 @@ const SettingsFoldersEdit = ({
             </button>
           </div>
         </Island>
-        <IslandDescription dir={lang.isRtl ? 'rtl' : undefined}>
+        </>}
+        {!isAiScope && <IslandDescription dir={lang.isRtl ? 'rtl' : undefined}>
           {lang('FilterColorHint')}
-        </IslandDescription>
+        </IslandDescription>}
 
+        {!isAiScope && <>
         <IslandTitle dir={lang.isRtl ? 'rtl' : undefined}>
           {lang('FolderLinkScreenTitle')}
         </IslandTitle>
@@ -566,6 +572,7 @@ const SettingsFoldersEdit = ({
             </ListItem>
           ))}
         </Island>
+        </>}
       </Surface>
 
       <FloatingActionButton
@@ -581,7 +588,7 @@ const SettingsFoldersEdit = ({
 };
 
 export default memo(withGlobal<OwnProps>(
-  (global, { state }): Complete<StateProps> => {
+  (global, { state, isAiScope }): Complete<StateProps> => {
     const { listIds } = global.chats;
     const { byId, invites } = global.chatFolders;
     const chatListCount = Object.values(byId).reduce((acc, el) => acc + (el.isChatList ? 1 : 0), 0);
@@ -592,7 +599,11 @@ export default memo(withGlobal<OwnProps>(
       loadedActiveChatIds: listIds.active,
       loadedArchivedChatIds: listIds.archived,
       invites: state.folderId ? (invites[state.folderId] || MEMO_EMPTY_ARRAY) : undefined,
-      isRemoved: state.folderId !== undefined && !byId[state.folderId],
+      isRemoved: state.folderId !== undefined && (isAiScope
+        ? global.aiConversationFolders.ownerUserId === global.currentUserId
+          && Boolean(global.aiConversationFolders.isLoaded)
+          && !global.aiConversationFolders.byId[state.folderId]
+        : !byId[state.folderId]),
       maxInviteLinks: selectCurrentLimit(global, 'chatlistInvites'),
       maxChatLists: selectCurrentLimit(global, 'chatlistJoined'),
       chatListCount,

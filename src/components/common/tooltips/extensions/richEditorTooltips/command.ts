@@ -84,7 +84,7 @@ function findCommandMatch({ $position }: { $position: ResolvedPos }): Suggestion
 function filterCommands(config: RichEditorTooltipsConfig, query: string) {
   const context = config.getContext();
   if (context.isAgentChat) {
-    return filterAgentCommands(context.agentComposerConfig, query);
+    return filterAgentCommands(context.agentComposerConfig, query, Boolean(context.isHermesAgentBot));
   }
 
   const commands = context.botCommands && context.botCommands.length

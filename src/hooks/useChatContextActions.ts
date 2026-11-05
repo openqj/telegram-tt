@@ -7,7 +7,7 @@ import { type ApiChat, type ApiUser, MAIN_THREAD_ID } from '../api/types';
 
 import { ARCHIVED_FOLDER_ID, SERVICE_NOTIFICATIONS_USER_ID } from '../config';
 import {
-  getCanDeleteChat, isChatArchived, isChatChannel, isChatCommunity, isChatGroup,
+  getCanDeleteChat, isAgentConversation, isChatArchived, isChatChannel, isChatCommunity, isChatGroup,
 } from '../global/helpers';
 import { selectChat, selectIsChatPinned } from '../global/selectors';
 import { selectThreadReadState } from '../global/selectors/threads';
@@ -96,6 +96,7 @@ const useChatContextActions = ({
 
   const deleteTitle = useMemo(() => {
     if (!chat) return undefined;
+    if (isAgentConversation(chat)) return undefined;
 
     if (isSavedDialog) {
       return lang('Delete');

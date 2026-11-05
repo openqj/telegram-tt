@@ -13,17 +13,21 @@ import type {
   ApiUserFullInfo,
   ApiUserStatus,
 } from '../../../api/types/index';
+import type { GlobalState } from '../../../global/types';
 import type { IconName } from '../../../types/icons/index';
 import type { AnimationLevel, ThemeKey } from '../../../types/index';
+import type { AgentActivity } from '../helpers/agentActivity';
 import { MediaViewerOrigin } from '../../../types/index';
 
 import { SERVICE_NOTIFICATIONS_USER_ID } from '../../../config.ts';
 import {
-  getUserStatus, isAnonymousForwardsChat, isChatChannel, isSystemBot, isUserOnline,
+  getUserStatus, isAgentConversation, isAnonymousForwardsChat, isChatChannel, isHermesAgentBotUser,
+  isSystemBot, isUserOnline,
 } from '../../../global/helpers/index';
 import { getActions, withGlobal } from '../../../global/index';
 import {
   selectChat,
+  selectChatMessages,
   selectCurrentMessageList,
   selectCustomEmoji,
   selectPeer,
@@ -47,11 +51,13 @@ import { captureEvents, SwipeDirection } from '../../../util/captureEvents';
 import { formatTonShortParts } from '../../../util/localization/format';
 import { MEMO_EMPTY_ARRAY } from '../../../util/memo';
 import { resolveTransitionName } from '../../../util/resolveTransitionName';
+import { getAgentActivity, isAgentActivityFresh } from '../helpers/agentActivity';
 import { REM } from '../helpers/mediaDimensions.ts';
 import renderText from '../helpers/renderText.tsx';
 
 import { useVtn } from '../../../hooks/animations/useVtn';
 import useIntervalForceUpdate from '../../../hooks/schedulers/useIntervalForceUpdate';
+import useConnectionStatus from '../../../hooks/useConnectionStatus';
 import useLang from '../../../hooks/useLang';
 import useLastCallback from '../../../hooks/useLastCallback';
 import usePreviousDeprecated from '../../../hooks/usePreviousDeprecated';
@@ -88,6 +94,9 @@ type StateProps = {
   userFullInfo?: ApiUserFullInfo;
   userStatus?: ApiUserStatus;
   chat?: ApiChat;
+  connectionState: GlobalState['connectionState'];
+  agentActivity?: AgentActivity;
+  isHermesAgentBot?: boolean;
   mediaIndex?: number;
   avatarOwnerId?: string;
   topic?: ApiTopic;
@@ -128,6 +137,9 @@ const ProfileInfo = ({
   userFullInfo,
   userStatus,
   chat,
+  connectionState,
+  agentActivity,
+  isHermesAgentBot,
   mediaIndex,
   avatarOwnerId,
   topic,
@@ -166,8 +178,11 @@ const ProfileInfo = ({
     && walletBalance >= MIN_SHOWN_WALLET_NANOS);
 
   const lang = useLang();
+  const isAgentChat = isAgentConversation(chat);
+  const isAgentBot = Boolean(chat?.isHermesAgentBot || isHermesAgentBot);
+  const { connectionStatusText } = useConnectionStatus(lang, connectionState, undefined, true);
 
-  useIntervalForceUpdate(user ? STATUS_UPDATE_INTERVAL : undefined);
+  useIntervalForceUpdate(user || isAgentChat ? STATUS_UPDATE_INTERVAL : undefined);
 
   const { createVtnStyle } = useVtn();
 
@@ -493,6 +508,19 @@ const ProfileInfo = ({
       );
     }
 
+    if (isAgentChat) {
+      const activityText = isAgentActivityFresh(agentActivity) ? agentActivity?.text : undefined;
+      return (
+        <span
+          className={buildClassName(styles.status, 'status')}
+          dir="auto"
+          style={createVtnStyle('status', true)}
+        >
+          {connectionStatusText || activityText || lang(isAgentBot ? 'BotStatusAgentBot' : 'BotStatusAgent')}
+        </span>
+      );
+    }
+
     if (user) {
       return (
         <div
@@ -693,6 +721,11 @@ export default memo(withGlobal<OwnProps>(
     const userFullInfo = user ? selectUserFullInfo(global, peerId) : undefined;
     const userStatus = selectUserStatus(global, peerId);
     const chat = selectChat(global, peerId);
+    const isAgentChat = isAgentConversation(chat);
+    const isHermesAgentBot = Boolean(
+      chat?.isHermesAgentBot || isHermesAgentBotUser(user, global.appConfig.hermesAgentBotUsernames),
+    );
+    const agentActivity = isAgentChat ? getAgentActivity(selectChatMessages(global, peerId)) : undefined;
     const profilePhotos = selectPeerPhotos(global, peerId);
     const { mediaIndex, chatId: avatarOwnerId } = selectTabState(global).mediaViewer;
     const isForum = chat?.isForum;
@@ -719,6 +752,9 @@ export default memo(withGlobal<OwnProps>(
       userFullInfo,
       userStatus,
       chat,
+      connectionState: global.connectionState,
+      agentActivity,
+      isHermesAgentBot,
       mediaIndex,
       avatarOwnerId,
       animationLevel,

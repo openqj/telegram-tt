@@ -86,6 +86,24 @@ import { getIsWebAppsFullscreenSupported } from '../../../hooks/useAppLayout';
 const runDebouncedForSearch = debounce((cb) => cb(), 500, false);
 let botFatherId: string | null;
 
+function getAgentWorkbenchUrl(rawUrl?: string, shouldCreate?: boolean) {
+  if (!rawUrl) return undefined;
+
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'https:' || url.username || url.password) return undefined;
+
+    if (shouldCreate) {
+      url.searchParams.set('create', '1');
+      url.searchParams.set('launch_id', crypto.randomUUID());
+    }
+
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 function canUseInlineBots<T extends GlobalState>(global: T, chat: ApiChat) {
   return isChatAdmin(chat) || !isUserRightBanned(chat, 'sendInline', selectChatFullInfo(global, chat.id));
 }
@@ -1758,6 +1776,34 @@ addActionHandler('startBotFatherConversation', async (global, actions, payload):
   }
 
   actions.openChat({ id: botFatherId, tabId });
+});
+
+addActionHandler('openAgentWorkbench', async (global, actions, payload): Promise<void> => {
+  const { shouldCreate, tabId = getCurrentTabId() } = payload;
+  const url = getAgentWorkbenchUrl(global.appConfig.agentWorkbenchUrl, shouldCreate);
+  if (!url) {
+    actions.showNotification({ message: { key: 'MiniAppUnavailableError' }, tabId });
+    return;
+  }
+
+  const chat = await fetchChatByUsername(global, BOT_FATHER_USERNAME);
+  if (!chat) {
+    actions.showNotification({ message: { key: 'MiniAppUnavailableError' }, tabId });
+    return;
+  }
+
+  global = getGlobal();
+  const bot = selectUser(global, chat.id);
+  if (!bot || !isUserBot(bot)) return;
+
+  actions.requestWebView({
+    url,
+    botId: bot.id,
+    peerId: chat.id,
+    theme: extractCurrentThemeParams(),
+    buttonText: '',
+    tabId,
+  });
 });
 
 addActionHandler('loadBotFreezeAppeal', async (global): Promise<void> => {

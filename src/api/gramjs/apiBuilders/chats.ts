@@ -26,6 +26,7 @@ import {
   MAIN_THREAD_ID,
 } from '../../types';
 
+import { AGENT_FOLDER_ID, SYSTEM_PRESET_AGENT_FOLDER_ID } from '../../../config';
 import { omitUndefined, pickTruthy } from '../../../util/iteratees';
 import { toJSNumber } from '../../../util/numbers';
 import { getServerTime } from '../../../util/serverTime';
@@ -151,11 +152,27 @@ function buildApiChatFieldsFromPeerEntity(
 
 export function buildApiChatFromDialog(
   dialog: GramJs.Dialog,
-  peerEntity: GramJs.TypeUser | GramJs.TypeChat,
+  peerEntity: GramJs.TypeUser | GramJs.TypeChat | undefined,
 ): ApiChat {
   const {
     peer, folderId, viewForumAsMessages, ttlPeriod,
   } = dialog;
+
+  if (folderId === AGENT_FOLDER_ID || folderId === SYSTEM_PRESET_AGENT_FOLDER_ID) {
+    return {
+      id: getApiChatIdFromMtpPeer(peer),
+      folderId,
+      type: 'chatTypePrivate',
+      title: peerEntity instanceof GramJs.User ? getApiChatTitleFromMtpPeer(peer, peerEntity) : '',
+      accessHash: '0',
+    };
+  }
+
+  if (!peerEntity) {
+    throw new Error('Missing peer entity for non-Agent dialog');
+  }
+
+  const chatFields = buildApiChatFieldsFromPeerEntity(peerEntity);
 
   return {
     id: getApiChatIdFromMtpPeer(peer),
@@ -164,7 +181,8 @@ export function buildApiChatFromDialog(
     title: getApiChatTitleFromMtpPeer(peer, peerEntity),
     isForumAsMessages: viewForumAsMessages,
     ttlPeriod,
-    ...buildApiChatFieldsFromPeerEntity(peerEntity),
+    ...chatFields,
+    accessHash: chatFields.accessHash,
   };
 }
 

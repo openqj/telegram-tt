@@ -9,11 +9,16 @@ import type {
 export const APP_CODE_NAME = 'A';
 export const APP_ENV = import.meta.env.TG_APP_ENV;
 export const APP_NAME = import.meta.env.TG_APP_NAME || `Telegram Web ${APP_CODE_NAME}`;
+export const GRAMSRV_MTPROTO_WS_URL = import.meta.env.TG_LOCAL_MTPROTO_WS_URL;
+export const USE_GRAMSRV_MTPROTO = import.meta.env.TG_MTPROTO_USE_GRAMSRV === '1';
+export const AGENT_MODEL_NAME = import.meta.env.TG_AGENT_MODEL || 'gpt-6.1-sol';
+export const AGENT_REASONING_EFFORT = 'medium';
+export const IDENTITY_API_BASE_URL = import.meta.env.TG_IDENTITY_API_BASE_URL || 'https://api.diante.me/identity';
 
-export const PRODUCTION_HOSTNAME = 'web.telegram.org';
-export const PRODUCTION_URL = 'https://web.telegram.org/a';
-export const WEB_VERSION_BASE = 'https://web.telegram.org/'; // Used to redirect to other versions
 export const BASE_URL = import.meta.env.TG_PUBLIC_URL;
+export const PRODUCTION_HOSTNAME = USE_GRAMSRV_MTPROTO ? new URL(BASE_URL).hostname : 'web.telegram.org';
+export const PRODUCTION_URL = USE_GRAMSRV_MTPROTO ? BASE_URL : 'https://web.telegram.org/a';
+export const WEB_VERSION_BASE = USE_GRAMSRV_MTPROTO ? new URL('/', BASE_URL).toString() : 'https://web.telegram.org/';
 export const ACCOUNT_QUERY = 'account';
 
 export const IS_TEST = APP_ENV === 'test';
@@ -403,6 +408,11 @@ export const CHANNEL_ID_BASE = 10n ** 12n;
 export const DEFAULT_GIF_SEARCH_BOT_USERNAME = 'gif';
 export const ALL_FOLDER_ID = 0;
 export const ARCHIVED_FOLDER_ID = 1;
+export const AGENT_FOLDER_ID = -2;
+export const AGENT_CREATION_FOLDER_ID = -4;
+export const AGENT_BOT_LIST_FOLDER_ID = -5;
+export const HERMES_AGENT_BOT_CREATION_FOLDER_ID = -6;
+export const SYSTEM_PRESET_AGENT_FOLDER_ID = -7;
 export const SAVED_FOLDER_ID = -1;
 export const FOLDER_TITLE_MAX_LENGTH = 12;
 export const DELETED_COMMENTS_CHANNEL_ID = (-CHANNEL_ID_BASE - 777n).toString();

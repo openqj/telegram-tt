@@ -322,6 +322,12 @@ export interface LangPair {
   'SendMessageTo': undefined;
   'NewChannel': undefined;
   'NewGroup': undefined;
+  'NewAgent': undefined;
+  'MyAgents': undefined;
+  'NavigationAi': undefined;
+  'NavigationPrimary': undefined;
+  'AgentCreationFailed': undefined;
+  'AgentCreationLimitExceeded': undefined;
   'AddPhoto': undefined;
   'EnterChannelName': undefined;
   'GroupName': undefined;
@@ -357,6 +363,22 @@ export interface LangPair {
   'Filters': undefined;
   'FilterRecommended': undefined;
   'Add': undefined;
+  'ServerManagerAddServer': undefined;
+  'ServerManagerTitle': undefined;
+  'ServerManagerName': undefined;
+  'ServerManagerHost': undefined;
+  'ServerManagerPort': undefined;
+  'ServerManagerUsername': undefined;
+  'ServerManagerPassword': undefined;
+  'ServerManagerHostKey': undefined;
+  'ServerManagerHostKeyHelp': undefined;
+  'ServerManagerStatus': undefined;
+  'ServerManagerCheck': undefined;
+  'ServerManagerChecking': undefined;
+  'ServerManagerNoServers': undefined;
+  'ServerManagerSaveFailed': undefined;
+  'ServerManagerStatusFailed': undefined;
+  'ServerManagerStatusOk': undefined;
   'EnterNewPasscode': undefined;
   'Continue': undefined;
   'ReEnterYourPasscode': undefined;
@@ -782,6 +804,8 @@ export interface LangPair {
   'RichTextMapPreview': undefined;
   'Loading': undefined;
   'NoMessages': undefined;
+  'NotebookWelcomeDescription': undefined;
+  'NotebookWelcomeTitle': undefined;
   'BotInfoTitle': undefined;
   'UnreadMessages': undefined;
   'DiscussionStarted': undefined;
@@ -1083,6 +1107,8 @@ export interface LangPair {
   'Bot': undefined;
   'BotStatusApp': undefined;
   'BotStatusAgent': undefined;
+  'BotStatusAgentBot': undefined;
+  'AgentBotRoleDescription': undefined;
   'BotStatusAi': undefined;
   'BotStatusGame': undefined;
   'BotStatusNonBinary': undefined;
@@ -1166,6 +1192,8 @@ export interface LangPair {
   'GroupInaccessible': undefined;
   'AriaPasswordToggle': undefined;
   'NothingFound': undefined;
+  'AgentWorkspaceNoFiles': undefined;
+  'AgentWorkspaceNoSkills': undefined;
   'SetUrlShort': undefined;
   'SetUrlLong': undefined;
   'SetUrlInvalid': undefined;
@@ -1626,6 +1654,22 @@ export interface LangPair {
   'ProfileTabMembers': undefined;
   'ProfileTabBotPreview': undefined;
   'ProfileTabMedia': undefined;
+  'ProfileTabAgentActivity': undefined;
+  'AgentActivityEmpty': undefined;
+  'AgentActivityProgressQueued': undefined;
+  'AgentActivityProgressWaitingApproval': undefined;
+  'AgentActivityProgressPaused': undefined;
+  'AgentReasoning': undefined;
+  'AgentReasoningHigh': undefined;
+  'AgentReasoningLow': undefined;
+  'AgentReasoningMedium': undefined;
+  'AgentModelInvalid': undefined;
+  'AgentSettings': undefined;
+  'AgentActivityStatusInProgress': undefined;
+  'AgentActivityStatusCompleted': undefined;
+  'AgentActivityStatusFailed': undefined;
+  'AgentTaskQueue': undefined;
+  'AgentTaskStopAndSend': undefined;
   'ProfileTabFiles': undefined;
   'ProfileTabLinks': undefined;
   'ProfileTabMusic': undefined;
@@ -3376,6 +3420,48 @@ export interface LangPair {
   'SettingsKeywordsLastSeen': undefined;
   'SettingsKeywordsLogOut': undefined;
   'SettingsSearchEmpty': undefined;
+  'NavigationWorkbench': undefined;
+  'PaseoAgentPairingUrl': undefined;
+  'PaseoAgentPairingHelp': undefined;
+  'PaseoAgentSavePairing': undefined;
+  'PaseoAgentLegacyPairing': undefined;
+  'PaseoAgentApproveHost': undefined;
+  'PaseoAgentDenyHost': undefined;
+  'PaseoAgentRevokeHost': undefined;
+  'PaseoAgentRegisterHost': undefined;
+  'PaseoAgentRevokeHostConfirm': undefined;
+  'PaseoAgentHostApproved': undefined;
+  'PaseoAgentHostDenied': undefined;
+  'PaseoAgentHostRevoked': undefined;
+  'PaseoAgentRemovePairing': undefined;
+  'PaseoAgentConnect': undefined;
+  'PaseoAgentDisconnect': undefined;
+  'PaseoAgentConnected': undefined;
+  'PaseoAgentSession': undefined;
+  'PaseoAgentNoHost': undefined;
+  'PaseoAgentWorkspace': undefined;
+  'PaseoAgentProviderModel': undefined;
+  'PaseoAgentTaskPlaceholder': undefined;
+  'PaseoAgentTimeline': undefined;
+  'PaseoAgentYou': undefined;
+  'PaseoAgentAssistant': undefined;
+  'PaseoAgentSubmitting': undefined;
+  'PaseoAgentTaskAccepted': undefined;
+  'PaseoAgentNoTimeline': undefined;
+  'PaseoAgentNoWorkspace': undefined;
+  'PaseoAgentNoProvider': undefined;
+  'PaseoAgentPermissionTitle': undefined;
+  'PaseoAgentAllow': undefined;
+  'PaseoAgentDeny': undefined;
+  'PaseoAgentAnswerQuestion': undefined;
+  'PaseoAgentDeniedMessage': undefined;
+  'PaseoAgentIdentityTitle': undefined;
+  'PaseoAgentIdentityLoginHelp': undefined;
+  'PaseoAgentIdentityTelegramNotReady': undefined;
+  'PaseoAgentIdentityAccount': undefined;
+  'PaseoAgentIdentityAccountChanged': undefined;
+  'PaseoAgentDisconnected': undefined;
+  'PaseoAgentAccountChanged': undefined;
 }
 
 export interface LangPairWithVariables<V = LangVariable> {
@@ -4157,6 +4243,12 @@ export interface LangPairWithVariables<V = LangVariable> {
   };
   'PlaylistTitle': {
     'peer': V;
+  };
+  'AgentActivityTask': {
+    'id': V;
+  };
+  'AgentActivityQueuePosition': {
+    'position': V;
   };
   'LocationPermissionText': {
     'name': V;
@@ -5628,6 +5720,9 @@ export interface LangPairWithVariables<V = LangVariable> {
   };
   'PeerPickerUnknownPeer': {
     'id': V;
+  };
+  'PaseoAgentTimelineEntry': {
+    'sequence': V;
   };
 }
 
@@ -7191,6 +7286,18 @@ export interface LangKeyGroups {
       | 'AiToneCreated';
     variables: 'title';
   };
+  'id': {
+    keys:
+      | 'AgentActivityTask'
+      | 'PeerPickerUnknownPeer';
+    variables: 'id';
+  };
+  'position': {
+    keys:
+      | 'AgentActivityQueuePosition'
+      | 'GiftAuctionTopPosition';
+    variables: 'position';
+  };
   'from,text': {
     keys:
       | 'ActionPinnedText';
@@ -7622,11 +7729,6 @@ export interface LangKeyGroups {
       | 'GiftAuctionBoughtGiftHeader';
     variables: 'gift' | 'giftNumber' | 'round';
   };
-  'position': {
-    keys:
-      | 'GiftAuctionTopPosition';
-    variables: 'position';
-  };
   'newPeer,oldPeer': {
     keys:
       | 'GiftAuctionChangeRecipientDescription';
@@ -7856,10 +7958,10 @@ export interface LangKeyGroups {
       | 'UsernameAlso';
     variables: 'usernames';
   };
-  'id': {
+  'sequence': {
     keys:
-      | 'PeerPickerUnknownPeer';
-    variables: 'id';
+      | 'PaseoAgentTimelineEntry';
+    variables: 'sequence';
   };
 }
 

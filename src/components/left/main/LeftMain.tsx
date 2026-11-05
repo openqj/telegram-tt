@@ -47,6 +47,8 @@ type OwnProps = {
   isAccountFrozen?: boolean;
   onReset: () => void;
   isFoldersSidebarShown?: boolean;
+  isAiList?: boolean;
+  isPaseoWorkbench?: boolean;
 };
 
 const TRANSITION_RENDER_COUNT = Object.keys(LeftColumnContent).length / 2;
@@ -70,6 +72,8 @@ const LeftMain = ({
   onTopicSearch,
   isAccountFrozen,
   isFoldersSidebarShown,
+  isAiList,
+  isPaseoWorkbench,
 }: OwnProps) => {
   const { openLeftColumnContent } = getActions();
   const [isNewChatButtonShown, setIsNewChatButtonShown] = useState(IS_TOUCH_ENV);
@@ -222,6 +226,8 @@ const LeftMain = ({
               return (
                 <ChatFolders
                   foldersDispatch={foldersDispatch}
+                  isAiList={isAiList}
+                  isPaseoWorkbench={isPaseoWorkbench}
                   isForumPanelOpen={isForumPanelVisible}
                   isFoldersSidebarShown={isFoldersSidebarShown}
                 />
@@ -272,6 +278,7 @@ const LeftMain = ({
       )}
       <NewChatButton
         isShown={isNewChatButtonShown}
+        isAiList={isAiList}
         onNewPrivateChat={handleSelectContacts}
         onNewChannel={handleSelectNewChannel}
         onNewGroup={handleSelectNewGroup}

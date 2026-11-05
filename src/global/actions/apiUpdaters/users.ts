@@ -3,6 +3,7 @@ import { throttleWithFullyIdle } from '../../../lib/teact/heavyAnimation';
 import type { ApiUserStatus } from '../../../api/types';
 import type { ActionReturnType } from '../../types';
 
+import { isAgentConversation } from '../../../global/helpers';
 import { isUserId } from '../../../util/entities/ids';
 import { addActionHandler, getGlobal, setGlobal } from '../../index';
 import {
@@ -16,7 +17,7 @@ import {
   updateUserFullInfo,
 } from '../../reducers';
 import {
-  selectChatFullInfo, selectIsChatWithSelf, selectIsCurrentUserPremium, selectPeerFullInfo,
+  selectChat, selectChatFullInfo, selectIsChatWithSelf, selectIsCurrentUserPremium, selectPeerFullInfo,
   selectUser, selectUserFullInfo,
 } from '../../selectors';
 
@@ -60,8 +61,16 @@ addActionHandler('apiUpdate', (global, actions, update): ActionReturnType => {
       });
 
       const localUser = selectUser(global, update.id);
+      const agentChat = selectChat(global, update.id);
 
       global = updateUser(global, update.id, update.user);
+      if (isAgentConversation(agentChat)) {
+        const updatedUser = selectUser(global, update.id);
+        const title = [updatedUser?.firstName, updatedUser?.lastName].filter(Boolean).join(' ');
+        if (title) {
+          global = updateChat(global, update.id, { title });
+        }
+      }
       if (update.fullInfo) {
         global = updateUserFullInfo(global, update.id, update.fullInfo);
       }

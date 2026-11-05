@@ -10,6 +10,8 @@
     "dev": "cross-env APP_ENV=development vite --mode development",
     "build:dev": "vite build --mode development",
     "build:staging": "cross-env APP_ENV=staging npm run build:dev",
+    "build:gramsrv": "vite build --mode gramsrv",
+    "build:gramsrv-staging": "cross-env APP_ENV=staging npm run build:gramsrv",
     "build:production": "cross-env APP_ENV=production vite build",
     "build:stats": "cross-env BUNDLE_STATS=1 vite build",
     "build:stats:visualizer": "cross-env BUNDLE_STATS_VISUALIZER=1 vite build",
@@ -104,6 +106,8 @@
   },
   "dependencies": {
     "@cryptography/aes": "^0.1.1",
+    "@getpaseo/client": "file:../paseo-main/packages/client",
+    "@getpaseo/protocol": "file:../paseo-main/packages/protocol",
     "@tauri-apps/api": "^2.12.2",
     "@tauri-apps/plugin-notification": "^2.5.1",
     "@tauri-apps/plugin-process": "^2.4.0",

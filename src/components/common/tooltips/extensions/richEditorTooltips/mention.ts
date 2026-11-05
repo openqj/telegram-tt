@@ -4,7 +4,7 @@ import type { ResolvedPos } from '@tiptap/pm/model';
 import { Suggestion, type SuggestionMatch } from '@tiptap/suggestion';
 import { getGlobal } from '../../../../../global';
 
-import type { ApiUser } from '../../../../../api/types';
+import type { ApiAgentWorkspaceFile, ApiUser } from '../../../../../api/types';
 import type {
   RichEditorInsertContent,
 } from '../../../../middle/composer/richEditorTypes';
@@ -14,6 +14,7 @@ import { getMainUsername } from '../../../../../global/helpers';
 import {
   filterPeersByQuery, getPeerTitle, isApiPeerUser,
 } from '../../../../../global/helpers/peers';
+import { encodeAgentWorkspaceFilePath } from '../../../../../util/agentConversationSettings';
 import { pickTruthy, unique } from '../../../../../util/iteratees';
 import { getTranslationFn } from '../../../../../util/localization';
 import { replaceEditorRange } from '../../../../middle/composer/helpers/richEditorComposer';
@@ -23,6 +24,7 @@ import {
   type GetTooltipController,
   hasUnsuitableContext,
   PLUGIN_KEYS,
+  SEARCH_DEBOUNCE_MS,
   TOOLTIP_GAP_PX,
 } from './suggestion';
 
@@ -39,8 +41,24 @@ export function buildMentionSuggestion(
     dismissOnOutsideClick: false,
     findSuggestionMatch: findMentionMatch,
     allow: () => config.mention!.isEnabled(),
-    items: ({ query }) => filterMentionUsers(config, query),
+    debounce: SEARCH_DEBOUNCE_MS,
+    items: ({ query }) => {
+      if (config.getContext().isAgentChat) {
+        return config.mention?.fetchAgentWorkspaceFiles?.(query) || [];
+      }
+
+      return filterMentionUsers(config, query);
+    },
     command: ({ editor: currentEditor, range, props }) => {
+      if (isAgentWorkspaceFile(props)) {
+        replaceEditorRange(currentEditor, range, {
+          type: 'text',
+          text: `@${encodeAgentWorkspaceFilePath(props.path)} `,
+        });
+        config.mention?.onAgentWorkspaceFileSelect?.(props);
+        return;
+      }
+
       const user = props as ApiUser;
       const content = buildMentionContent(user);
       if (!content) {
@@ -52,6 +70,10 @@ export function buildMentionSuggestion(
     shouldResetDismissed: ({ transaction }) => transaction.docChanged,
     render: () => buildSuggestionRenderer('mention', getController),
   });
+}
+
+function isAgentWorkspaceFile(item: RichEditorTooltipItem): item is ApiAgentWorkspaceFile {
+  return 'path' in item && 'kind' in item;
 }
 
 function findMentionMatch({ $position }: { $position: ResolvedPos }): SuggestionMatch {

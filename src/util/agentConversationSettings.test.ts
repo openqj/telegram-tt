@@ -81,12 +81,21 @@ describe('Agent composer settings directives', () => {
     expect(getAgentWorkspaceSkills([
       { path: '.agents/skills/release/SKILL.md', kind: 'file' },
       { path: 'skills/design/SKILL.md', kind: 'file' },
+      {
+        path: 'hermes-profile/skills/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad/SKILL.md',
+        name: 'Release Assistant',
+        kind: 'file',
+      },
       { path: 'skills/not-a-manifest/README.md', kind: 'file' },
       { path: 'skills/folder/SKILL.md', kind: 'directory' },
       { path: 'README.md', kind: 'file' },
     ])).toEqual([
       { path: '.agents/skills/release/SKILL.md', name: 'release' },
       { path: 'skills/design/SKILL.md', name: 'design' },
+      {
+        path: 'hermes-profile/skills/ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad/SKILL.md',
+        name: 'Release Assistant',
+      },
     ]);
   });
 });

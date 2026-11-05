@@ -78,19 +78,61 @@ export default defineConfig(({ mode }): UserConfig => {
   } = env;
   const appEnv = env.APP_ENV || (mode === 'development' ? 'development' : 'production');
   const defaultAppTitle = `Telegram${appEnv !== 'production' ? ' Beta' : ''}`;
-  const baseUrl = env.BASE_URL || PRODUCTION_URL;
-  const appTitle = env.APP_TITLE || defaultAppTitle;
   const isDevelopmentMode = mode === 'development';
+  const isGramsrvMode = mode === 'gramsrv';
   const isProductionApp = appEnv === 'production';
   const appleIcon = isProductionApp ? 'apple-touch-icon' : 'apple-touch-icon-dev';
   const mainIcon = isProductionApp ? 'icon-192x192' : 'icon-dev-192x192';
   const manifest = isProductionApp ? 'site.webmanifest' : 'site_dev.webmanifest';
+  const hasLocalGramsrvEndpoint = (isDevelopmentMode || isGramsrvMode)
+    && Boolean(env.TG_LOCAL_MTPROTO_WS_URL);
+  const hasPaseoRelayEndpoint = Boolean(env.TG_PASEO_RELAY_WS_URL);
+  const baseUrl = env.BASE_URL || (hasLocalGramsrvEndpoint ? 'http://localhost:1234/a' : PRODUCTION_URL);
+  const appTitle = env.APP_TITLE || defaultAppTitle;
+  if (isGramsrvMode && !hasLocalGramsrvEndpoint) {
+    throw new Error('TG_LOCAL_MTPROTO_WS_URL is required for the Gramsrv build');
+  }
+  if (isGramsrvMode && !env.TG_LOCAL_MTPROTO_WS_URL.startsWith('wss://')) {
+    throw new Error('TG_LOCAL_MTPROTO_WS_URL must use wss:// for the Gramsrv build');
+  }
+  if (isGramsrvMode && !hasPaseoRelayEndpoint) {
+    throw new Error('TG_PASEO_RELAY_WS_URL is required for the Gramsrv build');
+  }
+  if (isGramsrvMode && !env.TG_PASEO_RELAY_WS_URL.startsWith('wss://')) {
+    throw new Error('TG_PASEO_RELAY_WS_URL must use wss:// for the Gramsrv build');
+  }
+  if (isGramsrvMode && !env.BASE_URL) {
+    throw new Error('BASE_URL must be set to the self-hosted Web A URL for the Gramsrv build');
+  }
+  if (hasLocalGramsrvEndpoint) {
+    const gramsrvUrl = new URL(env.TG_LOCAL_MTPROTO_WS_URL);
+    if (isTelegramDomain(gramsrvUrl.hostname)) {
+      throw new Error('Local Gramsrv endpoints must not use a Telegram-owned host');
+    }
+  }
+  if (isGramsrvMode) {
+    const publicUrl = new URL(baseUrl);
+    if (isTelegramDomain(publicUrl.hostname)) {
+      throw new Error('Gramsrv builds must not use a Telegram-owned host for Web A or MTProto');
+    }
+    if (publicUrl.protocol !== 'https:') {
+      throw new Error('BASE_URL must use https:// for the Gramsrv build');
+    }
+  }
+  const paseoIdentityOrigin = env.TG_PASEO_IDENTITY_URL
+    ? getHttpOrigin(env.TG_PASEO_IDENTITY_URL, 'TG_PASEO_IDENTITY_URL')
+    : undefined;
   const csp = buildCsp(
     appEnv,
-    isDevelopmentMode && env.TG_LOCAL_MTPROTO_WS_URL
+    hasLocalGramsrvEndpoint && env.TG_LOCAL_MTPROTO_WS_URL
       ? getWebSocketOrigin(env.TG_LOCAL_MTPROTO_WS_URL)
       : undefined,
     isDevelopmentMode,
+    isGramsrvMode,
+    hasPaseoRelayEndpoint
+      ? getWebSocketOrigin(env.TG_PASEO_RELAY_WS_URL, 'TG_PASEO_RELAY_WS_URL')
+      : undefined,
+    paseoIdentityOrigin,
   );
   const telegramApiId = env.TELEGRAM_API_ID || '';
   const telegramApiHash = env.TELEGRAM_API_HASH || '';
@@ -172,7 +214,6 @@ export default defineConfig(({ mode }): UserConfig => {
 
   const shouldCollectWorkerReportBundles = bundleStatsVisualizerValue === '1' || bundleStatsValue === '1';
 
-  const hasLocalGramsrvEndpoint = isDevelopmentMode && Boolean(env.TG_LOCAL_MTPROTO_WS_URL);
   if (appEnv !== 'test' && !hasLocalGramsrvEndpoint && (!telegramApiId || !telegramApiHash)) {
     throw new Error('Missing required Telegram API credentials');
   }
@@ -188,6 +229,8 @@ export default defineConfig(({ mode }): UserConfig => {
     TG_MANIFEST: manifest,
     TG_TELEGRAM_API_ID: telegramApiId,
     TG_TELEGRAM_API_HASH: telegramApiHash,
+    TG_LOCAL_MTPROTO_WS_URL: hasLocalGramsrvEndpoint ? env.TG_LOCAL_MTPROTO_WS_URL : '',
+    TG_MTPROTO_USE_GRAMSRV: hasLocalGramsrvEndpoint ? '1' : '0',
     TG_TEST_SESSION: env.TEST_SESSION || '',
   });
 
@@ -219,12 +262,18 @@ export default defineConfig(({ mode }): UserConfig => {
         'Service-Worker-Allowed': '/',
       },
       https: getHttpsConfig(httpsCertPath, httpsKeyPath),
-      proxy: env.LOCAL_GRAMSRV_HTTP_TARGET ? {
-        '/owpengram/server-info': {
-          target: env.LOCAL_GRAMSRV_HTTP_TARGET,
-          changeOrigin: true,
-        },
-      } : undefined,
+      proxy: {
+        ...(env.LOCAL_GRAMSRV_HTTP_TARGET ? {
+          '/owpengram/server-info': {
+            target: env.LOCAL_GRAMSRV_HTTP_TARGET,
+            changeOrigin: true,
+          },
+          '/owpengram/agent': {
+            target: env.LOCAL_GRAMSRV_HTTP_TARGET,
+            changeOrigin: true,
+          },
+        } : {}),
+      },
       warmup: {
         clientFiles: DEV_BUNDLE_WARMUP_CLIENT_FILES,
       },
@@ -301,11 +350,24 @@ function setViteEnv(env: Record<string, string>) {
   });
 }
 
-function buildCsp(appEnv: string, localWebSocketOrigin?: string, isDevelopmentMode = false) {
+function buildCsp(
+  appEnv: string,
+  localWebSocketOrigin?: string,
+  isDevelopmentMode = false,
+  isGramsrvMode = false,
+  paseoRelayWebSocketOrigin?: string,
+  paseoIdentityOrigin?: string,
+) {
+  const connectionOrigins = [localWebSocketOrigin, paseoRelayWebSocketOrigin, paseoIdentityOrigin]
+    .filter(Boolean)
+    .join(' ');
+  const connectSrc = isGramsrvMode || Boolean(localWebSocketOrigin)
+    ? `'self' blob: ${connectionOrigins}`
+    : `'self' wss://*.web.telegram.org blob: http: https: wss: ${localWebSocketOrigin || ''}`;
+
   return `
   default-src 'self';
-  connect-src 'self' wss://*.web.telegram.org blob: http: https: wss:
-    ${localWebSocketOrigin || ''} ${appEnv === 'development' ? 'ipc:' : ''};
+  connect-src ${connectSrc} ${appEnv === 'development' ? 'ipc:' : ''};
   script-src 'self' 'wasm-unsafe-eval'
     https://t.me/_websync_ https://telegram.me/_websync_ https://telegram.dog/_websync_;
   worker-src 'self'${isDevelopmentMode ? ' blob:' : ''};
@@ -322,13 +384,33 @@ function buildCsp(appEnv: string, localWebSocketOrigin?: string, isDevelopmentMo
     .replace(/\s+/g, ' ').trim();
 }
 
-function getWebSocketOrigin(url: string) {
+function getWebSocketOrigin(url: string, envName = 'TG_LOCAL_MTPROTO_WS_URL') {
   const { protocol, host } = new URL(url);
   if (protocol !== 'ws:' && protocol !== 'wss:') {
-    throw new Error('TG_LOCAL_MTPROTO_WS_URL must use ws:// or wss://');
+    throw new Error(`${envName} must use ws:// or wss://`);
   }
 
   return `${protocol}//${host}`;
+}
+
+function getHttpOrigin(url: string, envName: string) {
+  const parsed = new URL(url);
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+    || parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error(`${envName} must be an HTTP or HTTPS URL without credentials or query parameters`);
+  }
+  if (parsed.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) {
+    throw new Error(`${envName} must use HTTPS outside localhost`);
+  }
+
+  return `${parsed.protocol}//${parsed.host}`;
+}
+
+function isTelegramDomain(hostname: string) {
+  const host = hostname.replace(/\.$/, '').toLowerCase();
+  return host === 'telegram.org' || host.endsWith('.telegram.org')
+    || host === 'telegram.me' || host.endsWith('.telegram.me')
+    || host === 't.me' || host.endsWith('.t.me');
 }
 
 function buildProjectPath(projectPath: string) {

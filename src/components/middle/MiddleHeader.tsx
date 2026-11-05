@@ -17,6 +17,7 @@ import {
 } from '../../config';
 import {
   getIsSavedDialog,
+  isAgentConversation,
 } from '../../global/helpers';
 import {
   selectChat,
@@ -294,6 +295,7 @@ const MiddleHeader = ({
     const realChatId = isSavedDialog ? String(threadId) : chatId;
 
     const displayChatId = chat?.isMonoforum ? chat.linkedMonoforumId! : realChatId;
+    const isAgentChat = isAgentConversation(chat);
     return (
       <>
         {(isLeftColumnHideable || currentTransitionKey > 0) && renderBackButton(shouldShowCloseButton, !isSavedDialog)}
@@ -305,7 +307,7 @@ const MiddleHeader = ({
           onTouchStart={handleLongPressTouchStart}
           onTouchEnd={handleLongPressTouchEnd}
         >
-          {isUserId(displayChatId) ? (
+          {isUserId(displayChatId) && !isAgentChat ? (
             <PrivateChatInfo
               key={displayChatId}
               userId={displayChatId}
@@ -332,10 +334,10 @@ const MiddleHeader = ({
               withMonoforumStatus={chat?.isMonoforum}
               status={connectionStatusText || savedMessagesStatus}
               withDots={Boolean(connectionStatusText)}
-              withMediaViewer={threadId === MAIN_THREAD_ID}
-              withFullInfo={threadId === MAIN_THREAD_ID}
+              withMediaViewer={!isAgentChat && threadId === MAIN_THREAD_ID}
+              withFullInfo={!isAgentChat && threadId === MAIN_THREAD_ID}
               withUpdatingStatus
-              withStory
+              withStory={!isAgentChat}
               isSavedDialog={isSavedDialog}
               storyViewerOrigin={StoryViewerOrigin.MiddleHeaderAvatar}
               emojiStatusSize={EMOJI_STATUS_SIZE}

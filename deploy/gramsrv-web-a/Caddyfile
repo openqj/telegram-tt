@@ -1,0 +1,31 @@
+{$WEB_A_HOST} {
+	encode zstd gzip
+
+	@mtproto path /apiws*
+	reverse_proxy @mtproto {$GRAMSRV_MTPROTO_UPSTREAM}
+
+	@server_info path /owpengram/*
+	reverse_proxy @server_info {$GRAMSRV_MTPROTO_UPSTREAM}
+
+	@agent_mini_app path /agents /agents/ /api/miniapps/agents*
+	reverse_proxy @agent_mini_app {$GRAMSRV_PUBLIC_WEB_UPSTREAM}
+
+	@root path /
+	redir @root /a/ 308
+	@a_root path /a
+	redir @a_root /a/ 308
+
+	@a_app path /a /a/*
+	handle @a_app {
+		uri strip_prefix /a
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

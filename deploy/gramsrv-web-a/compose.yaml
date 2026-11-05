@@ -1,0 +1,23 @@
+services:
+  web-a:
+    build:
+      context: ../..
+      dockerfile: deploy/gramsrv-web-a/Dockerfile
+      args:
+        APP_ENV: ${WEB_A_APP_ENV:-staging}
+        WEB_A_BASE_URL: ${WEB_A_BASE_URL:?set WEB_A_BASE_URL in deploy/gramsrv-web-a/.env}
+        WEB_A_MTPROTO_WS_URL: ${WEB_A_MTPROTO_WS_URL:?set WEB_A_MTPROTO_WS_URL in deploy/gramsrv-web-a/.env}
+        WEB_A_PASEO_RELAY_WS_URL: ${WEB_A_PASEO_RELAY_WS_URL:?set WEB_A_PASEO_RELAY_WS_URL in deploy/gramsrv-web-a/.env}
+    environment:
+      WEB_A_HOST: ${WEB_A_HOST:?set WEB_A_HOST in deploy/gramsrv-web-a/.env}
+      GRAMSRV_MTPROTO_UPSTREAM: ${GRAMSRV_MTPROTO_UPSTREAM:-127.0.0.1:2398}
+      GRAMSRV_PUBLIC_WEB_UPSTREAM: ${GRAMSRV_PUBLIC_WEB_UPSTREAM:-127.0.0.1:2401}
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

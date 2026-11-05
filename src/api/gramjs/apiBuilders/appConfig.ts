@@ -61,6 +61,10 @@ export interface GramJsAppConfig extends LimitsConfig {
   giveaway_gifts_purchase_available: boolean;
   giveaway_add_peers_max: number;
   premium_bot_username: string;
+  agent_bot_username?: string;
+  agent_bot_usernames?: string[];
+  hermes_agent_bot_usernames?: string[];
+  agent_workbench_url?: string;
   premium_invoice_slug: string;
   premium_promo_order: string[];
   default_emoji_statuses_stickerset_id: string;
@@ -208,6 +212,10 @@ export function buildAppConfig(json: GramJs.TypeJSONValue, hash: number): ApiApp
     webAppAllowedProtocols: appConfig.web_app_allowed_protocols,
     maxUniqueReactions: appConfig.reactions_uniq_max,
     premiumBotUsername: appConfig.premium_bot_username,
+    agentBotUsername: appConfig.agent_bot_username,
+    agentBotUsernames: appConfig.agent_bot_usernames,
+    hermesAgentBotUsernames: appConfig.hermes_agent_bot_usernames,
+    agentWorkbenchUrl: appConfig.agent_workbench_url,
     premiumInvoiceSlug: appConfig.premium_invoice_slug,
     premiumPromoOrder: appConfig.premium_promo_order as ApiPremiumSection[],
     isPremiumPurchaseBlocked: appConfig.premium_purchase_blocked,

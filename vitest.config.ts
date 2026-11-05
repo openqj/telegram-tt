@@ -11,7 +11,6 @@ export default defineConfig((configEnv) => mergeConfig(
     },
     test: {
       environment: 'jsdom',
-      setupFiles: ['./tests/init.ts'],
       // Agent worktrees under `.claude/` hold stale copies of the tests
       exclude: [...configDefaults.exclude, '.claude/**'],
     },

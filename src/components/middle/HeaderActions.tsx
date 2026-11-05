@@ -12,8 +12,11 @@ import { requestMeasure, requestNextMutation } from '../../lib/fasterdom/fasterd
 import {
   getHasAdminRight,
   getIsSavedDialog,
+  isAgentConversation,
   isAnonymousForwardsChat,
-  isChatChannel, isChatSuperGroup,
+  isChatChannel,
+  isChatSuperGroup,
+  isSystemPresetAgentConversation,
 } from '../../global/helpers';
 import {
   selectBot,
@@ -32,8 +35,9 @@ import {
   selectTranslationLanguage,
   selectUserFullInfo,
 } from '../../global/selectors';
+import { useAgentComposerConfig } from '../../util/agentComposerConfig';
 import { ARE_CALLS_SUPPORTED, IS_APP } from '../../util/browser/windowEnvironment';
-import { isUserId } from '../../util/entities/ids';
+import { getRawPeerId, isUserId } from '../../util/entities/ids';
 import focusNoScroll from '../../util/focusNoScroll';
 
 import { useHotkeys } from '../../hooks/useHotkeys';
@@ -85,11 +89,13 @@ interface StateProps {
   doNotTranslate: string[];
   isAccountFrozen?: boolean;
   currentTone?: TranslationTone;
+  agentBotUserId?: string;
 }
 
 const HeaderActions = ({
   chatId,
   threadId,
+  messageListType,
   noMenu,
   isMobile,
   isChannel,
@@ -117,6 +123,7 @@ const HeaderActions = ({
   doNotTranslate,
   isAccountFrozen,
   currentTone,
+  agentBotUserId,
   onTopicSearch,
 }: OwnProps & StateProps) => {
   const {
@@ -137,6 +144,7 @@ const HeaderActions = ({
   const menuButtonRef = useRef<HTMLButtonElement>();
 
   const lang = useLang();
+  const agentComposerConfig = useAgentComposerConfig(agentBotUserId);
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<IAnchorPosition | undefined>(undefined);
@@ -399,6 +407,7 @@ const HeaderActions = ({
         <HeaderMenuContainer
           chatId={chatId}
           threadId={threadId}
+          messageListType={messageListType}
           isOpen={isMenuOpen}
           anchor={menuAnchor}
           isChannel={isChannel}
@@ -419,6 +428,7 @@ const HeaderActions = ({
           channelMonoforumId={channelMonoforumId}
           onSearchClick={handleSearchClick}
           onAsMessagesClick={handleAsMessagesClick}
+          agentComposerConfig={agentComposerConfig}
           onClose={handleHeaderMenuClose}
           onCloseAnimationEnd={handleHeaderMenuHide}
         />
@@ -450,9 +460,11 @@ export default memo(withGlobal<OwnProps>(
       } as Complete<StateProps>;
     }
 
+    const isAgentChat = isAgentConversation(chat);
+    const agentBotUserId = isAgentChat && isUserId(chatId) ? getRawPeerId(chatId).toString() : undefined;
     const bot = selectBot(global, chatId);
     const chatFullInfo = !isPrivate ? selectChatFullInfo(global, chatId) : undefined;
-    const userFullInfo = isPrivate ? selectUserFullInfo(global, chatId) : undefined;
+    const userFullInfo = isPrivate && !isAgentChat ? selectUserFullInfo(global, chatId) : undefined;
     const fullInfo = chatFullInfo || userFullInfo;
     const isChatWithSelf = selectIsChatWithSelf(global, chatId);
     const isMainThread = messageListType === 'thread' && threadId === MAIN_THREAD_ID;
@@ -465,12 +477,12 @@ export default memo(withGlobal<OwnProps>(
       (isMainThread || chat.isForum) && (isChannel || isSuperGroup) && chat.isNotJoined && !chat.isMonoforum,
     );
     const canSearch = isMainThread || isDiscussionThread;
-    const canCall = ARE_CALLS_SUPPORTED && isUserId(chat.id) && !isChatWithSelf && !bot && !chat.isSupport
-      && !isAnonymousForwardsChat(chat.id);
+    const canCall = ARE_CALLS_SUPPORTED && !isAgentChat && isUserId(chat.id)
+      && !isChatWithSelf && !bot && !chat.isSupport && !isAnonymousForwardsChat(chat.id);
     const canMute = isMainThread && !isChatWithSelf && !canSubscribe;
-    const canLeave = isSavedDialog || (isMainThread && !canSubscribe);
-    const canEnterVoiceChat = ARE_CALLS_SUPPORTED && isMainThread && chat.isCallActive;
-    const canCreateVoiceChat = ARE_CALLS_SUPPORTED && isMainThread && !chat.isCallActive
+    const canLeave = isSavedDialog || (isMainThread && !canSubscribe && !isSystemPresetAgentConversation(chat));
+    const canEnterVoiceChat = ARE_CALLS_SUPPORTED && !isAgentChat && isMainThread && chat.isCallActive;
+    const canCreateVoiceChat = ARE_CALLS_SUPPORTED && !isAgentChat && isMainThread && !chat.isCallActive
       && getHasAdminRight(chat, 'manageCall') && !chat.isMonoforum;
     const canViewStatistics = isMainThread && chatFullInfo?.canViewStatistics;
     const canViewMonetization = isMainThread && chatFullInfo?.canViewMonetization;
@@ -489,6 +501,7 @@ export default memo(withGlobal<OwnProps>(
 
     return {
       noMenu: false,
+      agentBotUserId,
       isChannel,
       isRightColumnShown,
       canSubscribe,

@@ -4,9 +4,9 @@ import {
 import { getActions, withGlobal } from '../../global';
 
 import type {
-  ApiBotCommand, ApiChat, ApiDisallowedGifts,
+  ApiAgentComposerConfig, ApiBotCommand, ApiChat, ApiDisallowedGifts,
 } from '../../api/types';
-import type { IAnchorPosition, ThreadId } from '../../types';
+import type { IAnchorPosition, MessageListType, ThreadId } from '../../types';
 import type { IconName } from '../../types/icons';
 import type { RegularLangKey } from '../../types/language';
 import { MAIN_THREAD_ID } from '../../api/types';
@@ -18,6 +18,7 @@ import {
   getCanManageTopic,
   getHasAdminRight,
   getIsSavedDialog,
+  isAgentConversation,
   isChatAdmin,
   isChatChannel,
   isChatGroup,
@@ -84,6 +85,7 @@ const BOT_BUTTONS: Record<string, { icon: IconName; label: RegularLangKey }> = {
 export type OwnProps = {
   chatId: string;
   threadId: ThreadId;
+  messageListType: MessageListType;
   isOpen: boolean;
   anchor: IAnchorPosition;
   isChannel?: boolean;
@@ -107,6 +109,7 @@ export type OwnProps = {
   onClose: () => void;
   onCloseAnimationEnd: () => void;
   onJoinRequestsClick?: () => void;
+  agentComposerConfig?: ApiAgentComposerConfig;
 };
 
 type StateProps = {
@@ -148,6 +151,7 @@ const CLOSE_MENU_ANIMATION_DURATION = 200;
 const HeaderMenuContainer = ({
   chatId,
   threadId,
+  messageListType,
   isOpen,
   anchor,
   isChannel,
@@ -201,6 +205,7 @@ const HeaderMenuContainer = ({
   onAsMessagesClick,
   onClose,
   onCloseAnimationEnd,
+  agentComposerConfig,
 }: OwnProps & StateProps) => {
   const {
     updateChatMutedState,
@@ -236,9 +241,17 @@ const HeaderMenuContainer = ({
     setChatHistoryTtl,
     openAutoDeleteTimerModal,
     openWalletTransferLink,
+    openPollModal,
   } = getActions();
 
   const lang = useLang();
+  const isAgentChat = isAgentConversation(chat);
+  const canEditAgentSettings = Boolean(
+    agentComposerConfig && agentComposerConfig.executorBackend !== 'hermes',
+  );
+  const isAgentMainThread = messageListType === 'thread' && threadId === MAIN_THREAD_ID;
+  const canShowAgentSearch = canSearch;
+  const canShowAgentMute = canMute;
 
   const { isMobile } = useAppLayout();
   const [isMenuOpen, setIsMenuOpen] = useState(true);
@@ -289,6 +302,11 @@ const HeaderMenuContainer = ({
   const closeMenu = useLastCallback(() => {
     setIsMenuOpen(false);
     onClose();
+  });
+
+  const handleAgentSettingsOpen = useLastCallback(() => {
+    openPollModal({ chatId, threadId, messageListType, mode: 'agent-settings' });
+    closeMenu();
   });
 
   const handleViewGroupInfo = useLastCallback(() => {
@@ -643,13 +661,21 @@ const HeaderMenuContainer = ({
           onClose={closeMenu}
           shouldCloseFast={shouldCloseFast}
         >
-          {isMobile && canSearch && (
+          {isMobile && canShowAgentSearch && (
             <MenuItem
               icon="search"
               onClick={handleSearch}
             >
               {lang('Search')}
             </MenuItem>
+          )}
+          {isAgentChat && canEditAgentSettings && isAgentMainThread && (
+            <>
+              <MenuItem icon="settings" onClick={handleAgentSettingsOpen}>
+                {lang('AgentSettings')}
+              </MenuItem>
+              <MenuSeparator />
+            </>
           )}
           {withForumActions && canCreateTopic && (
             <>
@@ -759,7 +785,7 @@ const HeaderMenuContainer = ({
               {lang('VideoCall')}
             </MenuItem>
           )}
-          {canMute && (isMuted ? (
+          {canShowAgentMute && (isMuted ? (
             <MenuItem
               icon="unmute"
               onClick={handleUnmuteClick}
@@ -888,7 +914,7 @@ const HeaderMenuContainer = ({
               {lang('WalletSendMoney')}
             </MenuItem>
           )}
-          {isBot && (
+          {isBot && !isAgentChat && (
             <MenuItem
               icon={isBlocked ? 'bots' : 'hand-stop'}
               onClick={isBlocked ? handleRestartBot : handleBlock}
@@ -896,7 +922,7 @@ const HeaderMenuContainer = ({
               {isBlocked ? lang('BotRestart') : lang('BotStop')}
             </MenuItem>
           )}
-          {isPrivate && !isChatWithSelf && !isBot && (
+          {isPrivate && !isAgentChat && !isChatWithSelf && !isBot && (
             <MenuItem
               icon={noForwardsMyEnabled || noForwardsPeerEnabled ? 'allow-share' : 'no-share'}
               onClick={handleToggleNoForwards}
@@ -904,7 +930,7 @@ const HeaderMenuContainer = ({
               {noForwardsMyEnabled || noForwardsPeerEnabled ? lang('EnableSharing') : lang('DisableSharing')}
             </MenuItem>
           )}
-          {isPrivate && !isChatWithSelf && !isBot && (
+          {isPrivate && !isAgentChat && !isChatWithSelf && !isBot && (
             <MenuItem
               icon={isBlocked ? 'user' : 'hand-stop'}
               onClick={isBlocked ? handleUnblock : handleBlock}
@@ -966,16 +992,17 @@ export default memo(withGlobal<OwnProps>(
       return {} as Complete<StateProps>;
     }
     const isPrivate = isUserId(chat.id);
-    const user = isPrivate ? selectUser(global, chatId) : undefined;
-    const canAddContact = user && getCanAddContact(user);
+    const isAgentChat = isAgentConversation(chat);
+    const user = isPrivate && !isAgentChat ? selectUser(global, chatId) : undefined;
+    const canAddContact = !isAgentChat && user && getCanAddContact(user);
     const isMainThread = threadId === MAIN_THREAD_ID;
     const isChatWithSelf = selectIsChatWithSelf(global, chatId);
     const { chatId: currentChatId, threadId: currentThreadId } = selectCurrentMessageList(global) || {};
     const canReportChat = isMainThread && !user && (isChatChannel(chat) || isChatGroup(chat)) && !isChatAdmin(chat);
 
     const chatBot = !isSystemBot(chatId) ? selectBot(global, chatId) : undefined;
-    const userFullInfo = isPrivate ? selectUserFullInfo(global, chatId) : undefined;
-    const chatFullInfo = !isPrivate ? selectChatFullInfo(global, chatId) : undefined;
+    const userFullInfo = isPrivate && !isAgentChat ? selectUserFullInfo(global, chatId) : undefined;
+    const chatFullInfo = !isPrivate && !isAgentChat ? selectChatFullInfo(global, chatId) : undefined;
     const fullInfo = userFullInfo || chatFullInfo;
     const canGift = selectCanGift(global, chatId);
 
@@ -1004,7 +1031,7 @@ export default memo(withGlobal<OwnProps>(
       isBotForum: chat?.isBotForum,
       isForumAsMessages: chat?.isForumAsMessages,
       canAddContact,
-      canDeleteChat: getCanDeleteChat(chat),
+      canDeleteChat: !isAgentChat && getCanDeleteChat(chat),
       canReportChat,
       canGift,
       canSendMoney: selectCanSendMoneyToUser(global, chatId),
@@ -1014,7 +1041,7 @@ export default memo(withGlobal<OwnProps>(
       isChatInfoShown: chatInfo.isOpen && currentChatId === chatId && currentThreadId === threadId,
       canCreateTopic,
       canEditTopic,
-      canManage,
+      canManage: !isAgentChat && canManage,
       isRightColumnShown: selectIsRightColumnShown(global),
       canTranslate,
       isBlocked: userFullInfo?.isBlocked,

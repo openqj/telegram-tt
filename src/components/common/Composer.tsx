@@ -216,6 +216,7 @@ import useRichMedia from '../middle/composer/hooks/useRichMedia';
 import useVideoRecording from '../middle/composer/hooks/useVideoRecording';
 import useVoiceRecording from '../middle/composer/hooks/useVoiceRecording';
 
+import AgentServerManagerQuickActions from '../middle/composer/AgentServerManagerQuickActions';
 import AttachmentModal from '../middle/composer/AttachmentModal.async';
 import AttachMenu from '../middle/composer/AttachMenu';
 import BotCommandMenu from '../middle/composer/BotCommandMenu.async';
@@ -1247,12 +1248,21 @@ const Composer = ({
   const isAgentChat = isAgentConversation(chat);
   const agentComposerBotUserId = isAgentChat && isUserId(chatId) ? getRawPeerId(chatId).toString() : undefined;
   const agentComposerConfig = useAgentComposerConfig(agentComposerBotUserId);
+  const agentBotComposerConfig = chat?.isHermesAgentBot ? agentComposerConfig : undefined;
+  const canUseAgentWorkspaceFiles = (!agentBotComposerConfig?.attachmentSources
+    || agentBotComposerConfig.attachmentSources.includes('workspace'))
+  && (!agentBotComposerConfig?.mentionCommands || agentBotComposerConfig.mentionCommands.includes('workspace'));
+  const canUseAgentSkills = (!agentBotComposerConfig?.attachmentSources
+    || agentBotComposerConfig.attachmentSources.includes('skills'))
+  && (!agentBotComposerConfig?.doubleSlashCommands || agentBotComposerConfig.doubleSlashCommands.includes('skills'));
+  const [agentServerManagerAction, setAgentServerManagerAction] = useState<string>();
+  const handleAgentServerManagerActionHandled = useLastCallback(() => setAgentServerManagerAction(undefined));
   const handleAgentWorkspaceFilesLoad = useLastCallback((query: string) => (
-    agentComposerBotUserId ? fetchAgentWorkspaceFiles(agentComposerBotUserId, query) : Promise.resolve([])
+    agentComposerBotUserId ? fetchAgentWorkspaceFiles(agentComposerBotUserId, query, 'files') : Promise.resolve([])
   ));
   const handleAgentWorkspaceSkillsLoad = useLastCallback(async (query: string) => {
     if (!agentComposerBotUserId) return [];
-    const files = await fetchAgentWorkspaceFiles(agentComposerBotUserId, query || 'SKILL.md');
+    const files = await fetchAgentWorkspaceFiles(agentComposerBotUserId, query || 'SKILL.md', 'skills');
     return getAgentWorkspaceSkills(files);
   });
   const handleAgentWorkspaceFileSelect = useLastCallback(({ path }: ApiAgentWorkspaceFile) => {
@@ -1272,6 +1282,10 @@ const Composer = ({
       });
     } else if (command.setting === 'action' && command.value === 'status') {
       getActions().changeProfileTab({ profileTab: 'agentActivity' });
+    } else if (command.setting === 'action' && command.value === 'newbot') {
+      getActions().createNewHermesAgentBotChat();
+    } else if (command.setting === 'action' && ['add_server', 'server_status'].includes(command.value)) {
+      setAgentServerManagerAction(command.value);
     }
   });
   const hasAgentTaskDraft = hasInputContent || hasAttachments || hasRichOnlyContent;
@@ -1677,6 +1691,28 @@ const Composer = ({
 
       if (!text && !isForwarding) {
         return;
+      }
+
+      if (
+        isAgentChat && !editingMessage && !isForwarding && !scheduledAt && !scheduleRepeatPeriod
+        && text.trim().toLowerCase() === '/newbot'
+      ) {
+        getActions().createNewHermesAgentBotChat();
+        clearDraft({ chatId, threadId, isLocalOnly: true });
+        requestMeasure(() => resetComposer(false));
+        return;
+      }
+
+      if (chat?.isHermesAgentBot && agentComposerConfig?.systemPresetKind === 'server_manager'
+        && !editingMessage && !isForwarding && !scheduledAt && !scheduleRepeatPeriod) {
+        const command = text.trim().toLowerCase();
+        const action = command.startsWith('/') ? command.slice(1) : undefined;
+        if (action && agentComposerConfig.slashCommands?.includes(action)) {
+          setAgentServerManagerAction(action);
+          clearDraft({ chatId, threadId, isLocalOnly: true });
+          requestMeasure(() => resetComposer(false));
+          return;
+        }
       }
 
       if (isAgentChat && !editingMessage && text) {
@@ -2193,6 +2229,7 @@ const Composer = ({
       isCurrentUserPremium,
       canSendGifs,
       isAgentChat,
+      isHermesAgentBot: chat?.isHermesAgentBot,
       agentComposerConfig,
       agentModel: agentSettings.model,
       agentReasoningEffort: agentSettings.reasoningEffort,
@@ -2248,10 +2285,10 @@ const Composer = ({
     },
     mention: isInMessageList ? {
       isEnabled: getIsMentionTooltipEnabled,
-      fetchAgentWorkspaceFiles: isAgentChat ? handleAgentWorkspaceFilesLoad : undefined,
+      fetchAgentWorkspaceFiles: isAgentChat && canUseAgentWorkspaceFiles ? handleAgentWorkspaceFilesLoad : undefined,
       onAgentWorkspaceFileSelect: isAgentChat ? handleAgentWorkspaceFileSelect : undefined,
     } : undefined,
-    skill: isInMessageList && isAgentChat ? {
+    skill: isInMessageList && isAgentChat && canUseAgentSkills ? {
       isEnabled: getIsMentionTooltipEnabled,
       fetchAgentWorkspaceSkills: handleAgentWorkspaceSkillsLoad,
       onAgentWorkspaceSkillSelect: handleAgentWorkspaceSkillSelect,
@@ -2279,6 +2316,7 @@ const Composer = ({
     getTooltipBoundary, handleAgentCommandSelect, handleAgentWorkspaceFileSelect,
     handleAgentWorkspaceSkillSelect, handleAgentWorkspaceFilesLoad, handleAgentWorkspaceSkillsLoad,
     handleBotCommandSelect, handleInlineBotSelect, handleStickerSelect,
+    canUseAgentSkills, canUseAgentWorkspaceFiles,
     isAgentChat, isInMessageList, setInlineBotHelp,
   ]);
 
@@ -3082,6 +3120,7 @@ const Composer = ({
             <AttachMenu
               chatId={chatId}
               isAgentChat={isAgentChat}
+              attachmentSources={agentBotComposerConfig?.attachmentSources}
               threadId={threadId}
               editingMessage={editingMessage}
               canEditMedia={canMediaBeReplaced}
@@ -3404,6 +3443,15 @@ const Composer = ({
             />
           )}
         </div>
+        {chat?.isHermesAgentBot && agentComposerBotUserId
+          && agentComposerConfig?.systemPresetKind === 'server_manager' && (
+          <AgentServerManagerQuickActions
+            botUserId={agentComposerBotUserId}
+            config={agentComposerConfig}
+            requestedAction={agentServerManagerAction}
+            onRequestedActionHandled={handleAgentServerManagerActionHandled}
+          />
+        )}
       </div>
       {isAgentChat && isInMessageList && IS_VOICE_RECORDING_SUPPORTED && !activeRecording
         && !editingMessage && !isInScheduledList && !isForwarding && !isRichInputExpansionActive && (

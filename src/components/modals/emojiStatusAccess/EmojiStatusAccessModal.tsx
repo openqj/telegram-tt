@@ -12,6 +12,7 @@ import {
   selectIsCurrentUserFrozen, selectIsCurrentUserPremium, selectStickerSet, selectUser,
 } from '../../../global/selectors';
 import buildClassName from '../../../util/buildClassName';
+import { getStatusEmojiDocumentId } from './helpers';
 
 import useInterval from '../../../hooks/schedulers/useInterval';
 import useLang from '../../../hooks/useLang';
@@ -58,6 +59,7 @@ const EmojiStatusAccessModal = ({
   const containerRef = useRef<HTMLDivElement>();
 
   const [currentStatusIndex, setCurrentStatusIndex] = useState<number>(0);
+  const statusEmojiDocumentId = getStatusEmojiDocumentId(stickerSet?.stickers, currentStatusIndex);
 
   useEffect(() => {
     if (isOpen && !stickerSet?.stickers && !isAccountFrozen) {
@@ -66,15 +68,15 @@ const EmojiStatusAccessModal = ({
   }, [isOpen, stickerSet, isAccountFrozen]);
 
   const mockPeerWithStatus = useMemo(() => {
-    if (!currentUser || !stickerSet?.stickers) return undefined;
+    if (!currentUser || statusEmojiDocumentId === undefined) return undefined;
     return {
       ...currentUser,
       emojiStatus: {
         type: 'regular',
-        documentId: stickerSet.stickers[currentStatusIndex].id,
+        documentId: statusEmojiDocumentId,
       },
     } satisfies ApiUser;
-  }, [currentUser, stickerSet, currentStatusIndex]);
+  }, [currentUser, statusEmojiDocumentId]);
 
   const totalCount = stickerSet?.stickers?.length;
   useInterval(

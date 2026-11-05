@@ -1,10 +1,12 @@
 import './api/initial';
 import './api/chats';
+import './api/aiConversationFolders';
 import './api/messages';
 import './api/symbols';
 import './api/globalSearch';
 import './api/middleSearch';
 import './api/management';
+import './api/paseoWorkbench';
 import './api/sync';
 import './api/accounts';
 import './api/ai';

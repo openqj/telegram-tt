@@ -24,10 +24,12 @@ import {
   getHasAdminRight,
   getIsSavedDialog,
   getMessageSendingRestrictionReason,
+  isAgentConversation,
   isChatChannel,
   isChatGroup,
   isChatSuperGroup,
   isUserRightBanned,
+  shouldRequireBotStart,
 } from '../../global/helpers';
 import { getIsChatMuted } from '../../global/helpers/notifications';
 import {
@@ -780,6 +782,7 @@ export default memo(withGlobal<OwnProps>(
     const isPrivate = isUserId(chatId);
     const chat = selectChat(global, chatId);
     const bot = selectBot(global, chatId);
+    const isAgentChat = isAgentConversation(chat);
     const pinnedIds = selectPinnedIds(global, chatId, threadId);
     const chatFullInfo = chatId ? selectChatFullInfo(global, chatId) : undefined;
     const userFullInfo = chatId ? selectUserFullInfo(global, chatId) : undefined;
@@ -790,7 +793,7 @@ export default memo(withGlobal<OwnProps>(
     const isMessageThread = Boolean(!threadInfo?.isCommentsInfo && threadInfo?.fromChannelId);
     const topic = selectTopic(global, chatId, threadId);
     const canPost = chat && getCanPostInChat(chat, topic, isMessageThread, chatFullInfo);
-    const isBotNotStarted = selectIsChatBotNotStarted(global, chatId);
+    const isBotNotStarted = shouldRequireBotStart(chat, selectIsChatBotNotStarted(global, chatId));
     const isPinnedMessageList = messageListType === 'pinned';
     const isMainThread = messageListType === 'thread' && threadId === MAIN_THREAD_ID;
     const isChannel = Boolean(chat && isChatChannel(chat));
@@ -801,7 +804,7 @@ export default memo(withGlobal<OwnProps>(
     const shouldJoinToSend = Boolean(chat?.isNotJoined && chat.isJoinToSend);
     const shouldSendJoinRequest = Boolean(chat?.isNotJoined && chat.isJoinRequest);
     const isUserBlocked = isPrivate ? selectIsUserBlocked(global, chatId) : false;
-    const canRestartBot = Boolean(bot && isUserBlocked);
+    const canRestartBot = !isAgentChat && Boolean(bot && isUserBlocked);
     const canStartBot = !canRestartBot && isBotNotStarted;
     const canUnblock = isUserBlocked && !bot;
     const shouldLoadFullChat = Boolean(

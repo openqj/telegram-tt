@@ -501,7 +501,8 @@ export type ProfileTabType =
   | 'similarBots'
   | 'dialogs'
   | 'gifts'
-  | 'polls';
+  | 'polls'
+  | 'agentActivity';
 export type SharedMediaType = 'media' | 'documents' | 'links' | 'audio' | 'voice' | 'gif' | 'polls';
 export type MiddleSearchType = 'chat' | 'myChats' | 'channels';
 export type MiddleSearchParams = {

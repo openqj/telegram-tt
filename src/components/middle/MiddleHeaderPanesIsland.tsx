@@ -10,6 +10,7 @@ import { MAIN_THREAD_ID } from '../../api/types';
 import {
   requestForcedReflow, requestMutation, requestNextMutation,
 } from '../../lib/fasterdom/fasterdom';
+import { isAgentConversation } from '../../global/helpers';
 import {
   selectChat,
   selectCurrentMiddleSearch,
@@ -98,6 +99,7 @@ const MiddleHeaderPanesIsland = ({
   onFocusPinnedMessage,
 }: OwnProps & StateProps) => {
   const { settings } = userFullInfo || {};
+  const isAgentChat = isAgentConversation(chat);
 
   const [getPinnedState, setPinnedState] = useSignal<PaneState>(FALLBACK_PANE_STATE);
   const [getGroupCallState, setGroupCallState] = useSignal<PaneState>(FALLBACK_PANE_STATE);
@@ -398,9 +400,9 @@ const MiddleHeaderPanesIsland = ({
       )}
       <ChatReportPane
         chatId={chatId}
-        canAddContact={settings?.canAddContact}
-        canBlockContact={settings?.canBlockContact}
-        canReportSpam={settings?.canReportSpam}
+        canAddContact={!isAgentChat ? settings?.canAddContact : undefined}
+        canBlockContact={!isAgentChat ? settings?.canBlockContact : undefined}
+        canReportSpam={!isAgentChat ? settings?.canReportSpam : undefined}
         isAutoArchived={settings?.isAutoArchived}
         onPaneStateChange={setChatReportState}
       />

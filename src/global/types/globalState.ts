@@ -1,5 +1,6 @@
 import type {
   ApiAiComposeToneType,
+  ApiAiConversationFolder,
   ApiAppConfig,
   ApiAttachBot,
   ApiAudio,
@@ -92,6 +93,7 @@ import type {
   WebPageMediaSize,
 } from '../../types';
 import type { RegularLangFnParameters } from '../../util/localization';
+import type { PaseoWorkbenchSession } from '../paseoWorkbench';
 import type { SharedState } from './sharedState';
 import type { TabState } from './tabState';
 
@@ -275,6 +277,16 @@ export type GlobalState = {
     personalChannelIds?: string[];
   };
 
+  paseoWorkbench?: {
+    isActive: boolean;
+    activePaseoFolder: number;
+    ownerUserId?: string;
+    chatIds: string[];
+    projectFoldersById: Record<number, ApiChatFolder>;
+    projectFolderOrder: number[];
+    sessionsByChatId: Record<string, PaseoWorkbenchSession>;
+  };
+
   messages: {
     byChatId: Record<string, {
       byId: Record<number, ApiMessage>;
@@ -327,6 +339,14 @@ export type GlobalState = {
     invites: Record<number, ApiChatlistExportedInvite[]>;
     recommended?: ApiChatFolder[];
     areTagsEnabled?: boolean;
+  };
+
+  aiConversationFolders: {
+    byId: Record<number, ApiAiConversationFolder>;
+    orderedIds?: number[];
+    isLoading?: boolean;
+    isLoaded?: boolean;
+    ownerUserId?: string;
   };
 
   phoneCall?: ApiPhoneCall;

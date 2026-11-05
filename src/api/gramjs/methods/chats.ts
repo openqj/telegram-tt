@@ -26,9 +26,12 @@ import {
 } from '../../types';
 
 import {
+  AGENT_CREATION_FOLDER_ID,
+  AGENT_FOLDER_ID,
   ALL_FOLDER_ID,
   ARCHIVED_FOLDER_ID,
   DEBUG,
+  HERMES_AGENT_BOT_CREATION_FOLDER_ID,
   MEMBERS_LOAD_SLICE,
   SERVICE_NOTIFICATIONS_USER_ID,
   WEB_APP_PLATFORM,
@@ -134,6 +137,8 @@ export async function fetchChats({
   archived,
   withPinned,
   lastLocalServiceMessageId,
+  folderId,
+  hash,
 }: {
   limit: number;
   offsetDate?: number;
@@ -142,15 +147,18 @@ export async function fetchChats({
   archived?: boolean;
   withPinned?: boolean;
   lastLocalServiceMessageId?: number;
+  folderId?: number;
+  hash?: bigint;
 }): Promise<ChatListData | undefined> {
   const peer = (offsetPeer && buildInputPeer(offsetPeer.id, offsetPeer.accessHash)) || new GramJs.InputPeerEmpty();
   const result = await invokeRequest(new GramJs.messages.GetDialogs({
-    hash: DEFAULT_PRIMITIVES.BIGINT,
+    // Folder -4 uses `hash` as a per-create idempotency key.
+    hash: hash ?? DEFAULT_PRIMITIVES.BIGINT,
     offsetPeer: peer,
     offsetId: offsetId ?? DEFAULT_PRIMITIVES.INT,
     limit,
     offsetDate: offsetDate ?? DEFAULT_PRIMITIVES.INT,
-    folderId: archived ? ARCHIVED_FOLDER_ID : undefined,
+    folderId: folderId ?? (archived ? ARCHIVED_FOLDER_ID : undefined),
     ...(withPinned && { excludePinned: true }),
   }));
   const resultPinned = withPinned
@@ -219,13 +227,20 @@ export async function fetchChats({
     if (
       !(dialog instanceof GramJs.Dialog)
       // This request can return dialogs not belonging to specified folder
-      || (!archived && dialog.folderId === ARCHIVED_FOLDER_ID)
+      || (!folderId && !archived && dialog.folderId === ARCHIVED_FOLDER_ID)
       || (archived && dialog.folderId !== ARCHIVED_FOLDER_ID)
+      || (folderId === AGENT_FOLDER_ID && dialog.folderId !== AGENT_FOLDER_ID)
+      || ((folderId === AGENT_CREATION_FOLDER_ID || folderId === HERMES_AGENT_BOT_CREATION_FOLDER_ID)
+        && dialog.folderId !== AGENT_FOLDER_ID)
     ) {
       return;
     }
 
     const peerEntity = peersByKey[getPeerKey(dialog.peer)];
+    if (!peerEntity && dialog.folderId !== AGENT_FOLDER_ID) {
+      return;
+    }
+
     const chat = buildApiChatFromDialog(dialog, peerEntity);
     lastMessageByChatId[chat.id] = dialog.topMessage;
 
@@ -376,6 +391,10 @@ export async function fetchSavedChats({
     }
 
     const peerEntity = peersByKey[getPeerKey(dialog.peer)];
+    if (!peerEntity) {
+      return;
+    }
+
     const chat = buildApiChatFromSavedDialog(dialog, peerEntity);
     const chatId = getApiChatIdFromMtpPeer(dialog.peer);
 

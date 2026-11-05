@@ -4,10 +4,10 @@ import { getActions, withGlobal } from '../../../global';
 import type { ApiPeer } from '../../../api/types';
 
 import {
-  getChatTitle, getUserFirstOrLastName, getUserFullName, isChatBasicGroup,
+  getChatTitle, getUserFirstOrLastName, getUserFullName, isAgentConversation, isChatBasicGroup,
 } from '../../../global/helpers';
 import { isApiPeerChat, isApiPeerUser } from '../../../global/helpers/peers';
-import { selectPeer } from '../../../global/selectors';
+import { selectChat, selectPeer } from '../../../global/selectors';
 import buildClassName from '../../../util/buildClassName';
 
 import useFlag from '../../../hooks/useFlag';
@@ -35,6 +35,7 @@ type OwnProps = {
 type StateProps = {
   currentUserId?: string;
   peer?: ApiPeer;
+  isAgentChat?: boolean;
 };
 
 const ChatReportPane = ({
@@ -46,6 +47,7 @@ const ChatReportPane = ({
   canBlockContact,
   peer,
   currentUserId,
+  isAgentChat,
   onPaneStateChange,
 }: OwnProps & StateProps) => {
   const {
@@ -64,7 +66,7 @@ const ChatReportPane = ({
   const [shouldReportSpam, setShouldReportSpam] = useState<boolean>(true);
   const [shouldDeleteChat, setShouldDeleteChat] = useState<boolean>(true);
 
-  const hasAnyButton = canAddContact || canBlockContact || canReportSpam;
+  const hasAnyButton = !isAgentChat && (canAddContact || canBlockContact || canReportSpam);
   const isRendering = Boolean(hasAnyButton && peer);
 
   const {
@@ -75,7 +77,12 @@ const ChatReportPane = ({
     canReportSpam: renderingCanReportSpam,
     isAutoArchived: renderingIsAutoArchived,
   } = useFrozenProps({
-    chatId, peer, canAddContact, canBlockContact, canReportSpam, isAutoArchived,
+    chatId,
+    peer,
+    canAddContact: isAgentChat ? undefined : canAddContact,
+    canBlockContact: isAgentChat ? undefined : canBlockContact,
+    canReportSpam: isAgentChat ? undefined : canReportSpam,
+    isAutoArchived,
   }, !isRendering);
   const chat = renderingPeer && isApiPeerChat(renderingPeer) ? renderingPeer : undefined;
   const user = renderingPeer && isApiPeerUser(renderingPeer) ? renderingPeer : undefined;
@@ -126,7 +133,7 @@ const ChatReportPane = ({
     onStateChange: onPaneStateChange,
   });
 
-  if (!shouldRender) return undefined;
+  if (isAgentChat || !shouldRender) return undefined;
 
   return (
     <div
@@ -211,8 +218,12 @@ const ChatReportPane = ({
 };
 
 export default memo(withGlobal<OwnProps>(
-  (global, { chatId }): Complete<StateProps> => ({
-    currentUserId: global.currentUserId,
-    peer: selectPeer(global, chatId),
-  }),
+  (global, { chatId }): Complete<StateProps> => {
+    const chat = selectChat(global, chatId);
+    return {
+      currentUserId: global.currentUserId,
+      peer: selectPeer(global, chatId),
+      isAgentChat: isAgentConversation(chat),
+    };
+  },
 )(ChatReportPane));

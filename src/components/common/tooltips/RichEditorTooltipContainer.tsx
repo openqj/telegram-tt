@@ -3,6 +3,8 @@ import { memo, useEffect } from '../../../lib/teact/teact';
 import { getActions, withGlobal } from '../../../global';
 
 import type {
+  ApiAgentWorkspaceFile,
+  ApiAgentWorkspaceSkill,
   ApiBotCommand,
   ApiBotInlineMediaResult,
   ApiBotInlineResult,
@@ -11,6 +13,7 @@ import type {
   ApiUser,
 } from '../../../api/types';
 import type {
+  AgentComposerCommand,
   RichEditorFormatterState,
   RichEditorTooltipContext,
   RichEditorTooltipItem,
@@ -94,6 +97,8 @@ const RichEditorTooltipContainer = ({
   const onInlineBotHelpChange = config.inlineBot?.onHelpChange;
 
   const handleMentionSelect = useLastCallback((user: ApiUser) => suggestion?.command(user));
+  const handleWorkspaceFileSelect = useLastCallback((file: ApiAgentWorkspaceFile) => suggestion?.command(file));
+  const handleWorkspaceSkillSelect = useLastCallback((skill: ApiAgentWorkspaceSkill) => suggestion?.command(skill));
   const handleEmojiSelect = useLastCallback((emoji: string) => {
     const item = suggestion ? findEmojiItem(suggestion.items, emoji) : undefined;
     if (item) {
@@ -108,6 +113,7 @@ const RichEditorTooltipContainer = ({
   ) => config.sticker?.onSelect(sticker, isSilent, shouldSchedule));
   const handleStackCustomEmojiSelect = useLastCallback((emoji: ApiSticker) => customEmojiSuggestion?.command(emoji));
   const handleCommandSelect = useLastCallback((command: ApiBotCommand) => suggestion?.command(command));
+  const handleAgentCommandSelect = useLastCallback((command: AgentComposerCommand) => suggestion?.command(command));
   const handleQuickReplySelect = useLastCallback((quickReply: ApiQuickReply) => suggestion?.command(quickReply));
   const handleInlineBotLoadMore = useLastCallback(() => {
     if (!inlineBotState || !inlineBot) {
@@ -161,13 +167,40 @@ const RichEditorTooltipContainer = ({
   }
 
   if (surface === 'mention') {
+    const filteredUsers = suggestion.items.filter((item): item is ApiUser => 'id' in item);
+    const filteredFiles = suggestion.items.filter(isAgentWorkspaceFile);
+
     return (
       <div className={buildClassName(styles.root, styles.compact)}>
         <MentionTooltip
           isOpen={isOpen}
           selectedIndex={selectedIndex}
-          filteredUsers={suggestion.items as ApiUser[]}
+          filteredUsers={filteredUsers}
+          filteredFiles={filteredFiles}
+          isLoading={suggestion.loading}
+          showEmptyState={context.isAgentChat}
           onInsertUserName={handleMentionSelect}
+          onInsertWorkspaceFile={handleWorkspaceFileSelect}
+          onInsertWorkspaceSkill={handleWorkspaceSkillSelect}
+        />
+      </div>
+    );
+  }
+
+  if (surface === 'skill') {
+    const filteredSkills = suggestion.items.filter(isAgentWorkspaceSkill);
+
+    return (
+      <div className={buildClassName(styles.root, styles.compact)}>
+        <MentionTooltip
+          isOpen={isOpen}
+          selectedIndex={selectedIndex}
+          filteredSkills={filteredSkills}
+          isLoading={suggestion.loading}
+          showEmptyState
+          onInsertUserName={handleMentionSelect}
+          onInsertWorkspaceFile={handleWorkspaceFileSelect}
+          onInsertWorkspaceSkill={handleWorkspaceSkillSelect}
         />
       </div>
     );
@@ -226,6 +259,7 @@ const RichEditorTooltipContainer = ({
 
   if (surface === 'command' && context.currentUser) {
     const botCommands = suggestion.items.filter((item): item is ApiBotCommand => 'botId' in item);
+    const agentCommands = suggestion.items.filter(isAgentComposerCommand);
     const filteredQuickReplies = suggestion.items.filter((item): item is ApiQuickReply => 'shortcut' in item);
 
     return (
@@ -234,10 +268,13 @@ const RichEditorTooltipContainer = ({
           isOpen={isOpen}
           selectedIndex={selectedIndex}
           botCommands={botCommands}
+          agentCommands={agentCommands}
+          agentUser={context.agentUser}
           quickReplies={filteredQuickReplies}
           quickReplyMessages={context.quickReplyMessages}
           self={context.currentUser}
           onCommandSelect={handleCommandSelect}
+          onAgentCommandSelect={handleAgentCommandSelect}
           onQuickReplySelect={handleQuickReplySelect}
         />
       </div>
@@ -267,6 +304,18 @@ const RichEditorTooltipContainer = ({
 
   return undefined;
 };
+
+function isAgentComposerCommand(item: RichEditorTooltipItem): item is AgentComposerCommand {
+  return 'type' in item && item.type === 'agentComposerCommand';
+}
+
+function isAgentWorkspaceFile(item: RichEditorTooltipItem): item is ApiAgentWorkspaceFile {
+  return 'path' in item && 'kind' in item;
+}
+
+function isAgentWorkspaceSkill(item: RichEditorTooltipItem): item is ApiAgentWorkspaceSkill {
+  return 'path' in item && 'name' in item && !('kind' in item);
+}
 
 export default memo(withGlobal<OwnProps>(
   (global): Complete<StateProps> => {

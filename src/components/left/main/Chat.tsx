@@ -98,6 +98,7 @@ type OwnProps = {
   noCommunityChevron?: boolean;
   isInCommunityPanel?: boolean;
   isFoldersSidebarShown?: boolean;
+  isAiList?: boolean;
   observeIntersection?: ObserveFn;
   onReorderAnimationEnd?: NoneToVoidFunction;
 };
@@ -168,6 +169,7 @@ const Chat = ({
   noCommunityChevron,
   isInCommunityPanel,
   isFoldersSidebarShown,
+  isAiList,
   onReorderAnimationEnd,
 }: OwnProps & StateProps) => {
   const {
@@ -600,6 +602,7 @@ const Chat = ({
           onClose={closeChatFolderModal}
           onCloseAnimationEnd={unmarkRenderChatFolderModal}
           chatId={chatId}
+          scope={isAiList ? 'ai' : 'chats'}
         />
       )}
     </ListItem>
@@ -608,7 +611,7 @@ const Chat = ({
 
 export default memo(withGlobal<OwnProps>(
   (global, {
-    chatId, isSavedDialog, isPreview,
+    chatId, isSavedDialog, isPreview, isAiList,
   }): Complete<StateProps> => {
     const chat = selectChat(global, chatId);
     const user = selectUser(global, chatId);
@@ -653,7 +656,10 @@ export default memo(withGlobal<OwnProps>(
       isSelectedForum,
       isForumPanelOpen: selectIsForumPanelOpen(global),
       canScrollDown: isSelected && currentMessageListType === 'thread',
-      canChangeFolder: (global.chatFolders.orderedIds?.length || 0) > 1,
+      canChangeFolder: isAiList
+        ? global.aiConversationFolders.ownerUserId === global.currentUserId
+          && Boolean(global.aiConversationFolders.orderedIds?.length)
+        : (global.chatFolders.orderedIds?.length || 0) > 1,
       user,
       userStatus,
       typingStatusByPeerId,
